@@ -1,0 +1,37 @@
+---
+title: Testing
+layout: base
+---
+# Testing!!
+
+This is the main test :D
+
+Here's some HTML *in* the Markdown:
+
+<div class="test">
+	<p>Test</p>
+	<!-- A table! -->
+	<table>
+		<tr>
+			<th>Header 1</th>
+			<th>Header 2</th>
+		</tr>
+		<tr>
+			<td>Row 1, Cell 1</td>
+			<td>Row 1, Cell 2</td>
+		</tr>
+		<tr>
+			<td>Row 2, Cell 1</td>
+			<td>Row 2, Cell 2</td>
+		</tr>
+	</table>
+</div>
+
+<!-- A link to page.html, a neighboring file -->
+[Link to another page](page.html)
+
+<!-- Some JavaScript that will randomize the color of the word 'test' -->
+<span name="test">test</span>
+<script>
+	document.querySelector('[name="test"]').style.color = `rgb(${Math.floor(Math.random() * 256)}, ${Math.floor(Math.random() * 256)}, ${Math.floor(Math.random() * 256)})`;
+</script>
