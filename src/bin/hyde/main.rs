@@ -1,9 +1,12 @@
 #![feature(async_closure)]
 
+mod cli;
+
+use hyde::error::Error;
 use notify::Watcher;
 
 fn main() {
-	let args = <hyde::cli::CliArgs as clap::Parser>::parse();
+	let args = <cli::CliArgs as clap::Parser>::parse();
 	let project_dir = args.dir.map_or(std::env::current_dir().unwrap(), |p| std::env::current_dir().unwrap().join(p));
 	let source_dir = project_dir.join("src");
 	let output_dir = args.out.unwrap_or(project_dir.join("site"));
@@ -23,6 +26,8 @@ fn main() {
 	let (tx, rx) = std::sync::mpsc::channel::<notify::Result<notify::Event>>();
 	let mut watcher = notify::recommended_watcher(tx).unwrap();
 	watcher.watch(&config.source_dir, notify::RecursiveMode::Recursive).unwrap();
+	watcher.watch(&config.layout_dir, notify::RecursiveMode::Recursive).unwrap();
+	watcher.watch(&config.plugins_dir, notify::RecursiveMode::Recursive).unwrap();
 
 	let runtime = tokio::runtime::Builder::new_multi_thread()
 		.enable_all()
@@ -61,7 +66,16 @@ fn main() {
 		}
 
 		if to_reload {
-			hyde::process_dir(&config).unwrap();
+			if let Err(e) = hyde::process_dir(&config) {
+				match e {
+					Error::Io(e) => eprintln!("IO error: {e}"),
+					Error::Liquid(e) => eprintln!("Liquid error: {e}"),
+					Error::Lua(e) => eprintln!("Lua error: {e}"),
+					Error::WalkDir(e) => eprintln!("WalkDir error: {e}"),
+					Error::Grass(e) => eprintln!("Grass error: {e}"),
+					Error::Serde(e) => eprintln!("Serde error: {e:?}"),
+				}
+			}
 
 			reload_handle.reload();
 			to_reload = false;

@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use error::Error;
 use liquid::ValueView;
 
-pub mod cli;
 pub mod error;
+mod lua;
 
 #[derive(Debug, Clone)]
 pub struct HydeConfig {
@@ -21,14 +21,24 @@ pub struct HydeConfig {
 pub fn process_dir(config: &HydeConfig) -> Result<(), Error> {
 	let lua = unsafe { mlua::Lua::unsafe_new() };
 
-	if let Ok(init) = std::fs::read_to_string(config.plugins_dir.join("init.lua")).or_else(|_| std::fs::read_to_string(config.plugins_dir.join("init/init.lua"))) {
-		lua.load(&init).exec().unwrap();
+	let lua::LuaResult { tags, converters, filters } = lua::setup_lua(&lua, config)?;
+
+	let mut liquid_builder = liquid::ParserBuilder::with_stdlib();
+
+	for (tag, func) in tags {
+		liquid_builder = liquid_builder.tag(lua::LuaTag { tag, func, lua: lua.clone() });
 	}
 
-	let liquid = liquid::ParserBuilder::with_stdlib()
-		// .block(block)
-		.build()
-		?;
+	for (filter, func) in filters {
+		liquid_builder = liquid_builder.filter(lua::LuaFilter { filter, func });
+	}
+
+	liquid_builder = liquid_builder.block(lua::LuaBlock { lua: lua.clone() });
+
+	// We leak our Lua state here so it remains valid for the rest of the program's lifetime.
+	// Box::leak(Box::new(lua));
+
+	let liquid = liquid_builder.build()?;
 
 	walkdir::WalkDir::new(&config.source_dir)
 		.into_iter()
