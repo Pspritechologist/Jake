@@ -4,9 +4,11 @@ end
 
 local titlecase = require "testing.plugins.titlecase"
 
-function FILTERS.titlecase(input)
-	if not input then
-		return ""
+---@param input any
+---@param args table<string, any>
+function FILTERS.titlecase(input, args, ...)
+	if type(input) ~= "string" then
+		return input
 	end
 
 	return titlecase(input)
@@ -19,7 +21,7 @@ function TAGS.test_tag(name, ...)
 	end
 	table.insert(result, name .. " is " .. name .. "!")
 
-	return table.concat(result, "  \n")
+	return table.concat(result, "\n\n")
 end
 
 -- A list containing 15 different fruits

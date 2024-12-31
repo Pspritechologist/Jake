@@ -7,9 +7,11 @@
 ---@type table<string, fun(...): any>
 TAGS = {}
 
+---@alias Args table<string, any>
+
 --- List of filters to be registered with Hyde.
 --- 
 --- Functions should be added to this table under the
 --- desired name of the filter.
----@type table<string, fun(any): any>
+---@type table<string, fun(any, Args, ...): any>
 FILTERS = {}

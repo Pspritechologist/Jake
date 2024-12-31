@@ -1,5 +1,13 @@
 #![feature(try_blocks)]
 #![feature(let_chains)]
+#![feature(iterator_try_collect)]
+
+#![deny(clippy::unwrap_used,
+	// clippy::expect_used,
+	clippy::panic,
+	clippy::panic_in_result_fn,
+	clippy::panicking_overflow_checks,
+)]
 
 use std::path::PathBuf;
 
@@ -26,14 +34,14 @@ pub fn process_dir(config: &HydeConfig) -> Result<(), Error> {
 	let mut liquid_builder = liquid::ParserBuilder::with_stdlib();
 
 	for (tag, func) in tags {
-		liquid_builder = liquid_builder.tag(lua::LuaTag { tag, func, lua: lua.clone() });
+		liquid_builder = liquid_builder.tag(lua::tag::LuaTag { tag, func, lua: lua.clone() });
 	}
 
 	for (filter, func) in filters {
-		liquid_builder = liquid_builder.filter(lua::LuaFilter { filter, func });
+		liquid_builder = liquid_builder.filter(lua::filter::Lua { filter, func, lua: lua.clone() });
 	}
 
-	liquid_builder = liquid_builder.block(lua::LuaBlock { lua: lua.clone() });
+	liquid_builder = liquid_builder.block(lua::block::LuaBlock { lua: lua.clone() });
 
 	// We leak our Lua state here so it remains valid for the rest of the program's lifetime.
 	// Box::leak(Box::new(lua));
@@ -55,10 +63,10 @@ pub fn process_file(config: &HydeConfig, liquid: &liquid::Parser, file: walkdir:
 	let HydeConfig { source_dir, output_dir, .. } = config;
 
 	let input = file.path();
-	let file_path = file.path().strip_prefix(source_dir).unwrap();
+	let file_path = file.path().strip_prefix(source_dir).expect("File not in source directory");
 	let output = output_dir.join(file_path);
 
-	std::fs::create_dir_all(output.parent().unwrap())?;
+	std::fs::create_dir_all(output.parent().expect("File has no parent"))?;
 
 	let content = std::fs::read_to_string(input)?;
 	let content = parse_content(config, liquid, content, liquid::Object::new());
@@ -75,7 +83,7 @@ pub fn process_file(config: &HydeConfig, liquid: &liquid::Parser, file: walkdir:
 	}
 
 	match file.path().extension().and_then(std::ffi::OsStr::to_str) {
-		Some("md") => std::fs::write(output.with_extension("html"), markdown::to_html_with_options(&content?, &markdown_ops()).unwrap())?,
+		Some("md") => std::fs::write(output.with_extension("html"), markdown::to_html_with_options(&content?, &markdown_ops()).expect("Markdown doesn't panic"))?,
 		Some("scss") => std::fs::write(output.with_extension("css"), grass::from_string(content?.as_str(), &grass::Options::default())?)?,
 		_ => std::fs::write(output, content.map(|c| c.as_bytes().to_vec()).or_else(|_| std::fs::read(input))?)?,
 	}

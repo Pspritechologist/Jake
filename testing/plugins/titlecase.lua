@@ -1,3 +1,5 @@
+---@param input string
+---@return string
 local function titlecase(input)
     local small_words = {
         a = true, an = true, ['and'] = true, as = true, at = true, but = true, by = true,
