@@ -1,28 +1,43 @@
 #![feature(async_closure)]
+#![feature(let_chains)]
 
 mod cli;
 
-use hyde::error::Error;
+use std::sync::LazyLock;
+
+use cli::{CliArgs, HydePathArgs};
+use hyde::{error::ResultExtensions, HydeConfig};
 use notify::Watcher;
 
+pub static ARGS: LazyLock<CliArgs> = LazyLock::new(<CliArgs as clap::Parser>::parse);
+
 fn main() {
-	let args = <cli::CliArgs as clap::Parser>::parse();
-	let project_dir = args.dir.map_or(std::env::current_dir().unwrap(), |p| std::env::current_dir().unwrap().join(p));
-	let source_dir = project_dir.join("src");
-	let output_dir = args.out.unwrap_or(project_dir.join("site"));
-	let plugins_dir = project_dir.join("plugins");
-	let layout_dir = project_dir.join("layouts");
+	use cli::HydeCommand::*;
 
-	let config = hyde::HydeConfig {
+	match ARGS.command {
+		Completion { shell } => cli::generate_completion(shell),
+		Build(ref paths) => hyde::process_dir(&init_config(paths)).handle_as_error(),
+		Serve(ref paths) => serve(init_config(paths)),
+		Clean(ref paths) => if let HydeConfig { output_dir, .. } = init_config(paths) && output_dir.exists() {
+			std::fs::remove_dir_all(&output_dir).handle_as_error();
+		}
+	}
+}
+
+fn init_config(paths: &HydePathArgs) -> HydeConfig {
+	let project_dir = paths.dir.to_owned()
+		.map_or(std::env::current_dir().unwrap(), |p| std::env::current_dir().unwrap().join(p));
+
+	hyde::HydeConfig {
+		source_dir: project_dir.join("src"),
+		output_dir: paths.out.to_owned().unwrap_or(project_dir.join("site")),
+		plugins_dir: project_dir.join("plugins"),
+		layout_dir: project_dir.join("layouts"),
 		project_dir,
-		output_dir,
-		source_dir,
-		plugins_dir,
-		layout_dir,
-	};
+	}
+}
 
-	hyde::process_dir(&config).unwrap();
-
+fn serve(config: HydeConfig) {
 	let (tx, rx) = std::sync::mpsc::channel::<notify::Result<notify::Event>>();
 	let mut watcher = notify::recommended_watcher(tx).unwrap();
 	watcher.watch(&config.source_dir, notify::RecursiveMode::Recursive).unwrap();
@@ -59,41 +74,19 @@ fn main() {
 				Ok(notify::Event { kind: notify::EventKind::Access(_), ..}) |
 				Ok(notify::Event { kind: notify::EventKind::Any, ..}) |
 				Ok(notify::Event { kind: notify::EventKind::Other, ..}) => (),
-				Ok(_) => {
-					to_reload = true;
-				}
+				Ok(_) => to_reload = true,
 			}
 		}
 
 		if to_reload {
 			if let Err(e) = hyde::process_dir(&config) {
-				match e {
-					Error::Io(e) => eprintln!("IO error: {e}"),
-					Error::Liquid(e) => eprintln!("Liquid error: {e}"),
-					Error::Lua(e) => eprintln!("Lua error: {e}"),
-					Error::WalkDir(e) => eprintln!("WalkDir error: {e}"),
-					Error::Grass(e) => eprintln!("Grass error: {e}"),
-					Error::Serde(e) => eprintln!("Serde error: {e:?}"),
-				}
+				println!("{e}");
 			}
 
 			reload_handle.reload();
 			to_reload = false;
 		}
-	}
 
-	// for res in rx {
-	// 	match res {
-	// 		Err(e) => println!("watch error: {e:?}"),
-	// 		Ok(notify::Event { kind: notify::EventKind::Access(_), ..}) |
-	// 		Ok(notify::Event { kind: notify::EventKind::Any, ..}) |
-	// 		Ok(notify::Event { kind: notify::EventKind::Other, ..}) => (),
-	// 		Ok(_) => {
-	// 			reload_handle.reload();
-	// 			// handle.abort();
-	// 			// hyde::process_dir(&config).unwrap();
-	// 			// handle = runtime.spawn(start_webserver(config.output_dir.clone()));
-	// 		}
-	// 	}
-	// }
+		std::thread::sleep(std::time::Duration::from_millis(100));
+	}
 }

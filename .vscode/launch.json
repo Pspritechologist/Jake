@@ -7,12 +7,38 @@
 		{
 			"type": "lldb",
 			"request": "launch",
-			"name": "Debug executable 'hyde'",
+			"name": "Debug Hyde Serve",
 			"cargo": {
 				"args": [
 					"build",
 					"--bin=hyde",
 					"--package=hyde",
+				],
+				"filter": {
+					"name": "hyde",
+					"kind": "bin"
+				}
+			},
+			"args": [
+				// "--",
+				"build",
+			],
+			"cwd": "${workspaceFolder}",
+			"env": {
+				"HYDE_DIR": "${workspaceFolder}/testing/"
+			}
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Debug Hyde Build",
+			"cargo": {
+				"args": [
+					"build",
+					"--bin=hyde",
+					"--package=hyde",
+					"--",
+					"serve",
 				],
 				"filter": {
 					"name": "hyde",

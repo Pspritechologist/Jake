@@ -1,6 +1,12 @@
 #![feature(try_blocks)]
 #![feature(let_chains)]
 #![feature(iterator_try_collect)]
+#![feature(once_cell_try)]
+
+#![warn(
+	clippy::todo,
+	clippy::unimplemented,
+)]
 
 #![deny(clippy::unwrap_used,
 	// clippy::expect_used,
@@ -13,6 +19,7 @@ use std::path::PathBuf;
 
 use error::Error;
 use liquid::ValueView;
+use lua::general_api::file::HydeFile;
 
 pub mod error;
 mod lua;
@@ -27,9 +34,17 @@ pub struct HydeConfig {
 }
 
 pub fn process_dir(config: &HydeConfig) -> Result<(), Error> {
+	let files = collect_src(config)?;
+
+	for file in &files {
+		println!("{file:#?}");
+	}
+	println!();
+	println!();
+
 	let lua = unsafe { mlua::Lua::unsafe_new() };
 
-	let lua::LuaResult { tags, converters, filters } = lua::setup_lua(&lua, config)?;
+	let lua::LuaResult { tags, converters, filters, files } = lua::setup_lua_state(&lua, config, files)?;
 
 	let mut liquid_builder = liquid::ParserBuilder::with_stdlib();
 
@@ -48,48 +63,80 @@ pub fn process_dir(config: &HydeConfig) -> Result<(), Error> {
 
 	let liquid = liquid_builder.build()?;
 
-	walkdir::WalkDir::new(&config.source_dir)
+	// walkdir::WalkDir::new(&config.source_dir)
+	// 	.into_iter()
+	// 	.filter_map(Result::<_, _>::ok)
+	// 	.filter(|e| e.file_type().is_file())
+	// 	.try_for_each(|e| process_file(config, &liquid, e))?;
+	// 	// .map(|e| process_file(config, &liquid, e))
+	// 	// .collect::<Result<_, _>>()?;
+
+	for file in files {
+		// process_file(config, &liquid, file)?;
+		// Print all the data for each file in a pretty way.
+		println!("{file:#?}");
+	}
+
+	Ok(())
+}
+
+fn collect_src(config: &HydeConfig) -> Result<Vec<HydeFile>, Error> {
+	let HydeConfig { source_dir, output_dir, plugins_dir, layout_dir, .. } = config;
+
+	std::fs::create_dir_all(output_dir)?;
+	std::fs::create_dir_all(plugins_dir)?;
+	std::fs::create_dir_all(layout_dir)?;
+	
+	let files: Vec<_> = walkdir::WalkDir::new(source_dir)
 		.into_iter()
 		.filter_map(Result::<_, _>::ok)
 		.filter(|e| e.file_type().is_file())
-		.try_for_each(|e| process_file(config, &liquid, e))?;
-		// .map(|e| process_file(config, &liquid, e))
-		// .collect::<Result<_, _>>()?;
-
-	Ok(())
-}
-
-pub fn process_file(config: &HydeConfig, liquid: &liquid::Parser, file: walkdir::DirEntry) -> Result<(), Error> {
-	let HydeConfig { source_dir, output_dir, .. } = config;
-
-	let input = file.path();
-	let file_path = file.path().strip_prefix(source_dir).expect("File not in source directory");
-	let output = output_dir.join(file_path);
-
-	std::fs::create_dir_all(output.parent().expect("File has no parent"))?;
-
-	let content = std::fs::read_to_string(input)?;
-	let content = parse_content(config, liquid, content, liquid::Object::new());
-
-	fn markdown_ops() -> markdown::Options {
-		markdown::Options {
-			compile: markdown::CompileOptions {
-				allow_dangerous_html: true,
-				allow_dangerous_protocol: true,
-				..markdown::CompileOptions::gfm()
-			},
-			parse: markdown::ParseOptions::gfm()
+		.map(|entry| {
+		let path = entry.path();
+		let rel_path = PathBuf::from("/").join(path.strip_prefix(source_dir).expect("File not in source directory"));
+		
+		HydeFile {
+			to_write: false,
+			source: Some(rel_path.to_owned().into()),
+			output: rel_path.into(),
+			front_matter: Default::default(), //TODO
+			content: String::new(),
 		}
-	}
+	}).collect();
 
-	match file.path().extension().and_then(std::ffi::OsStr::to_str) {
-		Some("md") => std::fs::write(output.with_extension("html"), markdown::to_html_with_options(&content?, &markdown_ops()).expect("Markdown doesn't panic"))?,
-		Some("scss") => std::fs::write(output.with_extension("css"), grass::from_string(content?.as_str(), &grass::Options::default())?)?,
-		_ => std::fs::write(output, content.map(|c| c.as_bytes().to_vec()).or_else(|_| std::fs::read(input))?)?,
-	}
-
-	Ok(())
+	Ok(files)
 }
+
+// pub fn process_file(config: &HydeConfig, liquid: &liquid::Parser, file: HydeFile) -> Result<(), Error> {
+// 	let HydeConfig { source_dir, output_dir, .. } = config;
+
+// 	let output = output_dir.join(file.output);
+
+// 	std::fs::create_dir_all(output.parent().expect("File has no parent"))?;
+
+// 	let content = file.source.map(|src| std::fs::read_to_string(src));
+// 	let content = parse_content(config, liquid, content, liquid::Object::new());
+
+// 	fn markdown_ops() -> markdown::Options {
+// 		markdown::Options {
+// 			compile: markdown::CompileOptions {
+// 				allow_dangerous_html: true,
+// 				allow_dangerous_protocol: true,
+// 				gfm_tagfilter: false,
+// 				..markdown::CompileOptions::gfm()
+// 			},
+// 			parse: markdown::ParseOptions::gfm()
+// 		}
+// 	}
+
+// 	match file.path().extension().and_then(std::ffi::OsStr::to_str) {
+// 		Some("md") => std::fs::write(output.with_extension("html"), markdown::to_html_with_options(&content?, &markdown_ops()).expect("Markdown doesn't panic"))?,
+// 		Some("scss") => std::fs::write(output.with_extension("css"), grass::from_string(content?.as_str(), &grass::Options::default())?)?,
+// 		_ => std::fs::write(output, content.map(|c| c.as_bytes().to_vec()).or_else(|_| std::fs::read(input))?)?,
+// 	}
+
+// 	Ok(())
+// }
 
 fn parse_content(config: &HydeConfig, liquid: &liquid::Parser, content: String, mut frontmatter: liquid::Object) -> Result<String, Error> {
 	let mut lines = content.lines();
@@ -123,50 +170,3 @@ fn parse_content(config: &HydeConfig, liquid: &liquid::Parser, content: String, 
 	
 	Ok(content)
 }
-
-// #[derive(Debug, Clone)]
-// struct LuaBlock {
-// 	lua: mlua::Lua,
-// }
-
-// impl liquid_core::BlockReflection for LuaBlock {
-// 	fn start_tag(&self) -> &str {
-// 		"lua"
-// 	}
-
-// 	fn end_tag(&self) -> &str {
-// 		"endlua"
-// 	}
-
-// 	fn description(&self) -> &str {
-// 		"A block of Lua code to be executed"
-// 	}
-// }
-
-// impl liquid_core::ParseBlock for LuaBlock {
-// 	fn parse(
-// 		&self,
-// 		arguments: liquid_core::TagTokenIter,
-// 		mut block: liquid_core::TagBlock,
-// 		options: &liquid_core::Language,
-// 	) -> liquid_core::Result<Box<dyn liquid_core::Renderable>> {
-// 		Ok(Box::new(LuaBlockRenderer { function: self.lua.load(&block.parse_all(&options).unwrap().concat::<String>()).into_function().unwrap() }))
-// 	}
-
-// 	fn reflection(&self) -> &dyn liquid_core::BlockReflection {
-// 		self
-// 	}
-// }
-
-// #[derive(Debug, Clone)]
-// struct LuaBlockRenderer {
-// 	function: mlua::Function,
-// }
-
-// impl liquid_core::Renderable for LuaBlockRenderer {
-// 	fn render_to(&self, writer: &mut dyn std::io::Write, runtime: &dyn liquid_core::Runtime) -> liquid_core::Result<()> {
-// 		let res = self.lua.load(&self.script).into_function().unwrap();
-
-// 		Ok(())
-// 	}
-// }

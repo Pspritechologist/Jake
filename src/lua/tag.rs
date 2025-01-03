@@ -1,3 +1,13 @@
+use liquid_core::{
+	Expression,
+	Language,
+	ParseTag,
+	Renderable,
+	Runtime,
+	TagReflection,
+	TagTokenIter,
+};
+
 use super::*;
 
 #[derive(Debug, Clone)]
@@ -7,7 +17,7 @@ pub struct LuaTag {
 	pub lua: mlua::Lua,
 }
 
-impl liquid_core::TagReflection for LuaTag {
+impl TagReflection for LuaTag {
 	fn tag(&self) -> &str {
 		&self.tag
 	}
@@ -17,8 +27,8 @@ impl liquid_core::TagReflection for LuaTag {
 	}
 }
 
-impl liquid_core::ParseTag for LuaTag {
-	fn parse(&self, mut arguments: liquid_core::TagTokenIter, _options: &liquid_core::Language) -> liquid_core::Result<Box<dyn liquid_core::Renderable>> {
+impl ParseTag for LuaTag {
+	fn parse(&self, mut arguments: TagTokenIter, _options: &Language) -> liquid_core::Result<Box<dyn Renderable>> {
 		let mut args = vec![];
 
 		while let Ok(arg) = arguments.expect_next("") {
@@ -28,32 +38,28 @@ impl liquid_core::ParseTag for LuaTag {
 		Ok(Box::new(LuaTagRenderer { func: self.func.clone(), args, lua: self.lua.clone() }))
 	}
 
-	fn reflection(&self) -> &dyn liquid_core::TagReflection {
+	fn reflection(&self) -> &dyn TagReflection {
 		self
 	}
 }
 
 #[derive(Debug)]
 struct LuaTagRenderer {
-	args: Vec<liquid_core::Expression>,
+	args: Vec<Expression>,
 	func: mlua::Function,
 	lua: mlua::Lua,
 }
 
-impl liquid_core::Renderable for LuaTagRenderer {
-	fn render_to(&self, writer: &mut dyn std::io::Write, runtime: &dyn liquid_core::Runtime) -> liquid_core::Result<()> {
-		let args: mlua::MultiValue = self.args.iter().map(
-			|arg| arg.evaluate(runtime).and_then(
-				|v| self.lua.to_value(&v.into_owned()).map_err(|e| liquid::Error::with_msg(format!("Error while converting argument to Lua value: {e}")))
-			)
-		).collect::<Result<_, _>>()?;
+impl Renderable for LuaTagRenderer {
+	fn render_to(&self, writer: &mut dyn std::io::Write, runtime: &dyn Runtime) -> liquid_core::Result<()> {
+		let args: mlua::MultiValue = self.args.iter().map(|arg| arg.evaluate(runtime))
+			.map(|arg| self.lua.to_value(&arg?.into_owned()).map_err(Error::from))
+			.try_collect()?;
 
-		let res: mlua::Value = self.func.call(args)
-			.map_err(|e| liquid_core::Error::with_msg(format!("Lua error: {e}")))?;
-		let res = res.to_string().map_err(|e| liquid_core::Error::with_msg(format!("Error while rendering Lua result: {e}")))?;
+		let res: mlua::Value = self.func.call(args).map_err(Error::from)?;
+		let res = res.to_string().map_err(Error::from)?;
 		
-		writer.write_all(res.as_bytes())
-			.map_err(|e| liquid_core::Error::with_msg(format!("Error while writing Lua result: {e}")))?;
+		writer.write_all(res.as_bytes()).map_err(Error::from)?;
 
 		Ok(())
 	}

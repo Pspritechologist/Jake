@@ -65,11 +65,15 @@ impl Error {
 			e => e
 		}
 	}
+
+	pub fn print_error(&self) {
+		println!("{}", self.downcast());
+	}
 }
 
 impl Display for Error {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self.downcast() {
+		match self {
 			Error::Lua(e) => write!(f, "Lua error: {e}"),
 			Error::Liquid(e) => write!(f, "Liquid error: {e}"),
 			Error::Grass(e) => write!(f, "Grass error: {e}"),
@@ -105,8 +109,41 @@ pub trait ErrorExtensions: Into<Error> {
 	}
 
 	fn into_lua_error(self) -> mlua::Error {
-		mlua::Error::external(self.into())
+		self.into().into()
+	}
+
+	fn into_error(self) -> Error {
+		self.into()
+	}
+
+	fn print_as_error(self) {
+		self.into_error().print_error();
 	}
 }
 
 impl<E: Into<Error>> ErrorExtensions for E {}
+
+pub trait ResultExtensions<T> {
+	fn into_liquid_result(self) -> Result<T, liquid::Error>;
+	fn into_lua_result(self) -> Result<T, mlua::Error>;
+	fn into_error_result(self) -> Result<T, Error>;
+	fn handle_as_error(self) where Self: Sized {
+		if let Err(e) = self.into_error_result() {
+			e.print_error();
+		}
+	}
+}
+
+impl<E: ErrorExtensions, T> ResultExtensions<T> for Result<T, E> {
+	fn into_liquid_result(self) -> Result<T, liquid::Error> {
+		self.map_err(E::into_liquid_error)
+	}
+
+	fn into_lua_result(self) -> Result<T, mlua::Error> {
+		self.map_err(E::into_lua_error)
+	}
+
+	fn into_error_result(self) -> Result<T, Error> {
+		self.map_err(E::into_error)
+	}
+}
