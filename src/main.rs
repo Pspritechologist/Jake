@@ -6,7 +6,7 @@ mod cli;
 use std::sync::LazyLock;
 
 use cli::{CliArgs, HydePathArgs};
-use hyde::{error::ResultExtensions, HydeConfig};
+use hyde_lib::{error::ResultExtensions, HydeConfig};
 use notify::Watcher;
 
 pub static ARGS: LazyLock<CliArgs> = LazyLock::new(<CliArgs as clap::Parser>::parse);
@@ -16,7 +16,7 @@ fn main() {
 
 	match ARGS.command {
 		Completion { shell } => cli::generate_completion(shell),
-		Build(ref paths) => hyde::process_dir(&init_config(paths)).handle_as_error(),
+		Build(ref paths) => hyde_lib::process_dir(&init_config(paths)).handle_as_error(),
 		Serve(ref paths) => serve(init_config(paths)),
 		Clean(ref paths) => if let HydeConfig { output_dir, .. } = init_config(paths) && output_dir.exists() {
 			std::fs::remove_dir_all(&output_dir).handle_as_error();
@@ -28,7 +28,7 @@ fn init_config(paths: &HydePathArgs) -> HydeConfig {
 	let project_dir = paths.dir.to_owned()
 		.map_or(std::env::current_dir().unwrap(), |p| std::env::current_dir().unwrap().join(p));
 
-	hyde::HydeConfig {
+	hyde_lib::HydeConfig {
 		source_dir: project_dir.join("src"),
 		output_dir: paths.out.to_owned().unwrap_or(project_dir.join("site")),
 		plugins_dir: project_dir.join("plugins"),
@@ -79,7 +79,7 @@ fn serve(config: HydeConfig) {
 		}
 
 		if to_reload {
-			if let Err(e) = hyde::process_dir(&config) {
+			if let Err(e) = hyde_lib::process_dir(&config) {
 				println!("{e}");
 			}
 

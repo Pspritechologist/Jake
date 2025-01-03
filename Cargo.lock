@@ -567,18 +567,25 @@ dependencies = [
  "axum",
  "clap",
  "clap_complete",
+ "hyde_lib",
+ "notify",
+ "tokio",
+ "tower-http",
+ "tower-livereload",
+]
+
+[[package]]
+name = "hyde_lib"
+version = "0.1.0"
+dependencies = [
  "grass",
  "liquid",
  "liquid-core",
  "markdown",
  "mlua",
- "notify",
  "serde",
  "serde_json",
  "serde_yaml",
- "tokio",
- "tower-http",
- "tower-livereload",
  "walkdir",
 ]
 

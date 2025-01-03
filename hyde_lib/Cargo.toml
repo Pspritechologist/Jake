@@ -1,0 +1,16 @@
+[package]
+name = "hyde_lib"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# relative-path = { version = "*", features = [ "serde" ] }
+serde = "*"
+serde_yaml = "*"
+serde_json = "*"
+walkdir = "*"
+markdown = "1.0.0-alpha.21"
+grass = { version = "*", default-features = false }
+liquid = "*"
+liquid-core = "*"
+mlua = { version = "*", features = [ "luajit", "serialize", "send", "userdata-wrappers" ] }
