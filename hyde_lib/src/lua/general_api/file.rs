@@ -1,5 +1,6 @@
-use std::{cell::OnceCell, collections::HashMap, fmt::Write, ops::Deref, path::PathBuf};
+use std::{cell::OnceCell, collections::HashMap, fmt::Write, ops::Deref};
 use mlua::{FromLua, IntoLua, Lua, LuaSerdeExt, SerializeOptions, UserData};
+use relative_path::RelativePathBuf;
 use serde::Deserialize;
 use crate::{lua, HydeConfig};
 
@@ -16,8 +17,8 @@ pub const IS_ABSOLUTE_FIELD: &str = "is_absolute";
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct HydeFile {
 	pub to_write: bool,
-	pub source: Option<PathBuf>,
-	pub output: PathBuf,
+	pub source: Option<RelativePathBuf>,
+	pub output: RelativePathBuf,
 	pub content: String,
 	pub front_matter: HashMap<String, serde_json::Value>,
 }
@@ -103,7 +104,7 @@ impl UserData for FileUserData {
 			if let Some(path) = path.as_userdata() && let Ok(path) = TypedUserData::from_userdata(path.clone()) {
 				this.output = path;
 			} else if let Some(path) = path.as_str() {
-				this.output = PathUserData::new(PathBuf::from(&*path)).to_typed(lua);
+				this.output = PathUserData::new(RelativePathBuf::from(&*path)).to_typed(lua);
 			} else {
 				return Err(mlua::Error::runtime("`path` must be a Path or a String"));
 			}
@@ -126,8 +127,6 @@ impl UserData for FileUserData {
 			this.to_write = to_write;
 			Ok(())
 		});
-
-		fields.add_field_method_get(IS_ABSOLUTE_FIELD, |_, this| Ok(this.output.borrow()?.path.has_root()));
 	}
 
 	fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {

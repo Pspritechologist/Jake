@@ -20,6 +20,7 @@ use std::path::PathBuf;
 use error::Error;
 use liquid::ValueView;
 use lua::general_api::file::HydeFile;
+use relative_path::RelativePathBuf;
 
 pub mod error;
 mod lua;
@@ -92,13 +93,17 @@ fn collect_src(config: &HydeConfig) -> Result<Vec<HydeFile>, Error> {
 		.filter_map(Result::<_, _>::ok)
 		.filter(|e| e.file_type().is_file())
 		.map(|entry| {
-		let path = entry.path();
-		let rel_path = PathBuf::from("/").join(path.strip_prefix(source_dir).expect("File not in source directory"));
+		
+		let path = entry.path()
+			.strip_prefix(source_dir)
+			.ok()
+			.and_then(|p| RelativePathBuf::from_path(p).ok())
+			.expect("File not in source directory");
 		
 		HydeFile {
 			to_write: false,
-			source: Some(rel_path.to_owned().into()),
-			output: rel_path.into(),
+			source: Some(path.clone()),
+			output: path,
 			front_matter: Default::default(), //TODO
 			content: String::new(),
 		}

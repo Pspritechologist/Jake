@@ -64,11 +64,11 @@ pub fn setup_lua_state(lua: &mlua::Lua, config: &HydeConfig, files: Vec<HydeFile
 	global.set(CONVERTERS_TABLE, lua.create_table()?)?;
 
 	let site_data = lua.create_table()?;
-	site_data.set(DIR_PROJ, PathUserData::from(&config.project_dir))?;
-	site_data.set(DIR_SRC, PathUserData::from(&config.source_dir))?;
-	site_data.set(DIR_OUT, PathUserData::from(&config.output_dir))?;
-	site_data.set(DIR_PLUG, PathUserData::from(&config.plugins_dir))?;
-	site_data.set(DIR_LAY, PathUserData::from(&config.layout_dir))?;
+	site_data.set(DIR_PROJ, config.project_dir.as_os_str())?;
+	site_data.set(DIR_SRC, config.source_dir.as_os_str())?;
+	site_data.set(DIR_OUT, config.output_dir.as_os_str())?;
+	site_data.set(DIR_PLUG, config.plugins_dir.as_os_str())?;
+	site_data.set(DIR_LAY, config.layout_dir.as_os_str())?;
 
 	let site_files = lua.create_table_from(
 		files.into_iter().enumerate().map(|(i, file)| (i + 1, FileUserData::from_file(file, lua)))

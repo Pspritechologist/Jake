@@ -1,13 +1,13 @@
-use std::path::{Path, PathBuf};
 use mlua::{IntoLua, IntoLuaMulti, UserData};
+use relative_path::{RelativePath, RelativePathBuf};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PathUserData {
-	pub path: std::path::PathBuf,
+	pub path: RelativePathBuf,
 }
 
-impl From<PathBuf> for PathUserData {
-	fn from(path: PathBuf) -> Self {
+impl From<RelativePathBuf> for PathUserData {
+	fn from(path: RelativePathBuf) -> Self {
 		Self { path }
 	}
 }
@@ -15,12 +15,12 @@ impl From<PathBuf> for PathUserData {
 impl PathUserData {
 	pub const CLASS_NAME: &'static str = "Path";
 
-	pub fn new(path: impl Into<PathBuf>) -> Self {
+	pub fn new(path: impl Into<RelativePathBuf>) -> Self {
 		Self { path: path.into() }
 	}
 
-	pub fn from(path: impl AsRef<Path>) -> Self {
-		Self { path: path.as_ref().to_path_buf() }
+	pub fn from(path: impl AsRef<RelativePath>) -> Self {
+		Self { path: path.as_ref().to_relative_path_buf() }
 	}
 }
 
@@ -51,7 +51,7 @@ impl UserData for PathUserData {
 		});
 		fields.add_field_method_set("name", |_, this, name: mlua::String| {
 			let name = name.to_str()?;
-			let mut name = PathBuf::from(&*name);
+			let mut name = RelativePathBuf::from(&*name);
 			
 			if name.extension().is_none() {
 				name.set_extension(this.path.extension().unwrap_or_default());
@@ -62,17 +62,17 @@ impl UserData for PathUserData {
 			Ok(())
 		});
 
-		fields.add_field_method_get("is_dir", |_, this| Ok(this.path.is_dir()));
-		fields.add_field_method_get("is_file", |_, this| Ok(this.path.is_file()));
+		// fields.add_field_method_get("is_dir", |_, this| Ok(this.path.is_dir()));
+		// fields.add_field_method_get("is_file", |_, this| Ok(this.path.is_file()));
 
-		fields.add_field_method_get("is_absolute", |_, this| Ok(this.path.is_absolute()));
-		fields.add_field_method_get("is_relative", |_, this| Ok(this.path.is_relative()));
+		// fields.add_field_method_get("is_absolute", |_, this| Ok(this.path.is_absolute()));
+		// fields.add_field_method_get("is_relative", |_, this| Ok(this.path.is_relative()));
 
-		fields.add_field_method_get("exists", |_, this| Ok(this.path.exists()));
+		// fields.add_field_method_get("exists", |_, this| Ok(this.path.exists()));
 	}
 
 	fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
-		methods.add_meta_method(mlua::MetaMethod::ToString, |lua, this, ()| this.path.as_os_str().into_lua(lua));
+		methods.add_meta_method(mlua::MetaMethod::ToString, |lua, this, ()| this.path.as_str().into_lua(lua));
 
 		methods.add_method_mut("push", |_, this, path: mlua::Value| {
 			if let Some(path) = path.as_userdata() && path.is::<PathUserData>() {
@@ -89,15 +89,15 @@ impl UserData for PathUserData {
 			Ok(())
 		});
 
-		methods.add_method("join", |lua, this, path: mlua::MultiValue| {
-			let path = join_paths(lua, (this.path.clone(), path))?;
+		methods.add_function("join", |lua, paths: mlua::MultiValue| {
+			let path = join_paths(lua, paths)?;
 			path.into_lua(lua)
 		});
 	}
 }
 
 fn join_paths(lua: &mlua::Lua, paths: impl IntoLuaMulti) -> mlua::Result<PathUserData> {
-	let mut path = PathBuf::new();
+	let mut path = RelativePathBuf::new();
 	for p in paths.into_lua_multi(lua)? {
 		if let Some(p) = p.as_userdata() {
 			let p = p.borrow::<PathUserData>()?;
