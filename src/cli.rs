@@ -48,8 +48,10 @@ pub fn generate_completion(shell: clap_complete::Shell) {
 		&mut <CliArgs as clap::CommandFactory>::command(),
 		std::env::current_exe()
 			.ok()
-			.and_then(|p| p.file_stem().and_then(std::ffi::OsStr::to_str).map(ToOwned::to_owned))
-			.unwrap_or(env!("CARGO_BIN_NAME").to_string()),
+			.as_ref()
+			.and_then(|p| p.file_name())
+			.and_then(std::ffi::OsStr::to_str)
+			.unwrap_or(env!("CARGO_BIN_NAME")),
 		&mut std::io::stdout(),
 	)
 }

@@ -2,7 +2,7 @@ use std::{cell::OnceCell, collections::HashMap, fmt::Write, ops::Deref};
 use mlua::{FromLua, IntoLua, Lua, LuaSerdeExt, SerializeOptions, UserData};
 use relative_path::RelativePathBuf;
 use serde::Deserialize;
-use crate::{lua, HydeConfig};
+use crate::{frontmatter::FrontMatter, lua, HydeConfig};
 
 use super::{path::PathUserData, *};
 
@@ -20,7 +20,7 @@ pub struct HydeFile {
 	pub source: Option<RelativePathBuf>,
 	pub output: RelativePathBuf,
 	pub content: String,
-	pub front_matter: HashMap<String, serde_json::Value>,
+	pub front_matter: FrontMatter,
 }
 
 #[derive(Debug, Clone)]

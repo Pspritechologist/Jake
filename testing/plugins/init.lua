@@ -44,17 +44,6 @@ function TAGS.liquid_context(word)
 	return TEMPLATE.data.title() .. " " .. word
 end
 
--- proj = SITE.project_dir
--- print(proj["end"])
--- print(proj.ext)
--- print(proj.name)
--- print(proj.parent)
--- print(proj.parent.parent)
--- print(proj.is_file)
--- print(proj.exists)
--- print(proj.is_absolute)
--- print(proj:join(SITE.layout_dir, "owo"))
-
 for i, file in ipairs(SITE.files) do
 	print(i)
 	if file.source.ext == "md" then
@@ -63,6 +52,6 @@ for i, file in ipairs(SITE.files) do
 
 	print("", file.source, " -> ", file.path)
 	for k, v in pairs(file.data) do
-		print("", "", k, v)
+		print("", k, "=", v)
 	end
 end

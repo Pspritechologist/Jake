@@ -7,7 +7,8 @@ pub enum Error {
 	Grass(Box<grass::Error>),
 	WalkDir(Arc<walkdir::Error>),
 	Io(Arc<std::io::Error>),
-	Serde(SerdeError)
+	Serde(SerdeError),
+	Glob(globset::Error),
 }
 
 impl std::error::Error for Error {}
@@ -36,6 +37,10 @@ impl<T: Into<SerdeError>> From<T> for Error {
 	fn from(e: T) -> Self { Error::Serde(e.into()) }
 }
 
+impl From<globset::Error> for Error {
+	fn from(e: globset::Error) -> Self { Error::Glob(e) }
+}
+
 #[derive(Debug, Clone)]
 pub enum SerdeError {
 	Json(Arc<serde_json::Error>),
@@ -52,14 +57,14 @@ impl From<serde_yaml::Error> for SerdeError {
 
 impl Error {
 	/// If this error is a Liquid or Lua error containing a
-	/// dynamic Error, downcast it to that Error.  
+	/// dynamic Error, recursively downcast it to that Error.  
 	/// Otherwise, return the error as-is.
 	pub fn downcast(&self) -> &Error {
 		match self {
 			Error::Lua(mlua::Error::ExternalError(e)) if e.is::<Error>()
-				=> e.downcast_ref::<Error>().expect("Validated above"),
+				=> e.downcast_ref::<Error>().expect("Validated above").downcast(),
 			liquid @ Error::Liquid(e) => match std::error::Error::source(e).and_then(|e| e.downcast_ref::<Error>()) {
-				Some(e) => e,
+				Some(e) => e.downcast(),
 				None => liquid
 			},
 			e => e
@@ -81,6 +86,7 @@ impl Display for Error {
 			Error::Io(e) => write!(f, "IO error: {e}"),
 			Error::Serde(SerdeError::Json(e)) => write!(f, "JSON error: {e}"),
 			Error::Serde(SerdeError::Yaml(e)) => write!(f, "YAML error: {e}"),
+			Error::Glob(e) => write!(f, "Glob pattern error: {e}"),
 		}
 	}
 }

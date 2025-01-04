@@ -2,6 +2,8 @@
 #![feature(let_chains)]
 #![feature(iterator_try_collect)]
 #![feature(once_cell_try)]
+#![feature(extend_one)]
+#![feature(iter_intersperse)]
 
 #![warn(
 	clippy::todo,
@@ -15,15 +17,17 @@
 	clippy::panicking_overflow_checks,
 )]
 
-use std::path::PathBuf;
+use std::{collections::{BTreeMap, HashMap}, path::PathBuf};
 
 use error::Error;
+use frontmatter::FrontMatter;
 use liquid::ValueView;
 use lua::general_api::file::HydeFile;
 use relative_path::RelativePathBuf;
 
 pub mod error;
 mod lua;
+mod frontmatter;
 
 #[derive(Debug, Clone)]
 pub struct HydeConfig {
@@ -34,20 +38,15 @@ pub struct HydeConfig {
 	pub layout_dir: PathBuf,
 }
 
-pub fn process_dir(config: &HydeConfig) -> Result<(), Error> {
+pub fn process_project(config: &HydeConfig) -> Result<(), Error> {
 	let files = collect_src(config)?;
 
-	for file in &files {
-		println!("{file:#?}");
-	}
-	println!();
-	println!();
-
 	let lua = unsafe { mlua::Lua::unsafe_new() };
-
 	let lua::LuaResult { tags, converters, filters, files } = lua::setup_lua_state(&lua, config, files)?;
 
 	let mut liquid_builder = liquid::ParserBuilder::with_stdlib();
+
+	liquid_builder = liquid_builder.block(lua::block::LuaBlock { lua: lua.clone() });
 
 	for (tag, func) in tags {
 		liquid_builder = liquid_builder.tag(lua::tag::LuaTag { tag, func, lua: lua.clone() });
@@ -56,11 +55,6 @@ pub fn process_dir(config: &HydeConfig) -> Result<(), Error> {
 	for (filter, func) in filters {
 		liquid_builder = liquid_builder.filter(lua::filter::Lua { filter, func, lua: lua.clone() });
 	}
-
-	liquid_builder = liquid_builder.block(lua::block::LuaBlock { lua: lua.clone() });
-
-	// We leak our Lua state here so it remains valid for the rest of the program's lifetime.
-	// Box::leak(Box::new(lua));
 
 	let liquid = liquid_builder.build()?;
 
@@ -74,8 +68,6 @@ pub fn process_dir(config: &HydeConfig) -> Result<(), Error> {
 
 	for file in files {
 		// process_file(config, &liquid, file)?;
-		// Print all the data for each file in a pretty way.
-		println!("{file:#?}");
 	}
 
 	Ok(())
@@ -87,27 +79,64 @@ fn collect_src(config: &HydeConfig) -> Result<Vec<HydeFile>, Error> {
 	std::fs::create_dir_all(output_dir)?;
 	std::fs::create_dir_all(plugins_dir)?;
 	std::fs::create_dir_all(layout_dir)?;
+
+	let mut files = Vec::with_capacity(16); // Better than starting at 0.
 	
-	let files: Vec<_> = walkdir::WalkDir::new(source_dir)
+	let dir = walkdir::WalkDir::new(source_dir)
 		.into_iter()
-		.filter_map(Result::<_, _>::ok)
-		.filter(|e| e.file_type().is_file())
-		.map(|entry| {
-		
+		.filter_entry(|e| !e.file_name().to_string_lossy().starts_with('.'))
+		.filter_map(Result::ok);
+
+	const DEFAULT_FRONTMATTER_FILE: &str = ".hyde.yml";
+
+	let mut frontmatter_glob: Vec<(globset::GlobMatcher, FrontMatter)> = Default::default();
+
+	for entry in dir {
+		if entry.file_type().is_dir() {
+			let conf_path = entry.path().join(DEFAULT_FRONTMATTER_FILE);
+			if let Some(config) = conf_path.exists()
+				.then(|| std::fs::File::open(conf_path))
+				.transpose()?
+				.map(serde_yaml::from_reader::<_, HashMap<String, FrontMatter>>)
+				.transpose()? {
+
+				// let rel_path = entry.path().strip_prefix(source_dir).expect("Directory not in source directory");
+
+				frontmatter_glob.extend_reserve(config.len());
+				for (glob, frontmatter) in config {
+					frontmatter_glob.push((globset::GlobBuilder::new(&format!("{}/{}", entry.path().to_string_lossy(), glob))
+						.backslash_escape(true)
+						.empty_alternates(true)
+						.build()?
+						.compile_matcher(), frontmatter));
+				}
+			}
+
+			continue;
+		}
+
 		let path = entry.path()
 			.strip_prefix(source_dir)
 			.ok()
 			.and_then(|p| RelativePathBuf::from_path(p).ok())
 			.expect("File not in source directory");
-		
-		HydeFile {
+
+		let mut front_matter = frontmatter::parse_frontmatter(entry.path())?.unwrap_or_default();
+
+		for (glob, fm) in &frontmatter_glob {
+			if glob.is_match(entry.path()) {
+				front_matter.extend(fm.clone());
+			}
+		}
+
+		files.push(HydeFile {
 			to_write: false,
 			source: Some(path.clone()),
 			output: path,
-			front_matter: Default::default(), //TODO
+			front_matter,
 			content: String::new(),
-		}
-	}).collect();
+		});
+	}
 
 	Ok(files)
 }
