@@ -1,10 +1,8 @@
+use crate::{frontmatter::FrontMatter, lua, HydeConfig};
+use super::{path::PathUserData, *};
 use std::{cell::OnceCell, collections::HashMap, fmt::Write, ops::Deref};
 use mlua::{FromLua, IntoLua, Lua, LuaSerdeExt, SerializeOptions, UserData};
 use relative_path::RelativePathBuf;
-use serde::Deserialize;
-use crate::{frontmatter::FrontMatter, lua, HydeConfig};
-
-use super::{path::PathUserData, *};
 
 pub const SOURCE_FIELD: &str = "source";
 pub const OUTPUT_FIELD: &str = "path";
@@ -12,7 +10,6 @@ pub const CONTENT_FIELD: &str = "content";
 pub const DATA_FIELD: &str = "data";
 pub const TO_WRITE_FIELD: &str = "to_write";
 pub const IGNORE_METHOD: &str = "ignore";
-pub const IS_ABSOLUTE_FIELD: &str = "is_absolute";
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct HydeFile {
@@ -43,7 +40,7 @@ impl FileUserData {
 			source: file.source.map(PathUserData::new),
 			output: PathUserData::new(file.output).to_typed(lua),
 			data: lua.create_table_from(
-				file.front_matter.into_iter().map(|(k, v)| (k, lua.to_value(&v).expect("Value failed :(")))
+				file.front_matter.into_iter().map(|(k, v)| (k, lua.to_value(&v).expect("All frontmatter values are valid Lua values"))),
 			).expect("Table failed :("),
 			lua_string: OnceCell::new(),
 		}
@@ -134,23 +131,9 @@ impl UserData for FileUserData {
 			this.to_write = ignore.unwrap_or(false);
 			Ok(())
 		});
+
+		methods.add_function(super::NEW_FUNCTION, |lua, ()| {
+			FileUserData::new(lua)
+		});
 	}
 }
-
-// impl FromLua for HydeFile {
-// 	fn from_lua(value: mlua::Value, lua: &Lua) -> mlua::Result<Self> {
-// 		if let Some(userdata) = value.as_userdata() {
-// 			let userdata = userdata.borrow::<FileUserData>()?;
-			
-// 			Ok(Self {
-// 				to_write: userdata.to_write,
-// 				source: userdata.source.as_ref().map(|path| path.path.clone()),
-// 				output: userdata.output.borrow()?.path.clone(),
-// 				content: userdata.content.clone(),
-// 				front_matter: lua.from_value(mlua::Value::Table(userdata.data.clone()))?,
-// 			})
-// 		} else {
-// 			Err(mlua::Error::runtime(format!("Expected a table or a userdata, got {:?}", value.type_name())))
-// 		}
-// 	}
-// }

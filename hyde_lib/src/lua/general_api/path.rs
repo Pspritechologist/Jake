@@ -114,9 +114,9 @@ fn join_paths(lua: &mlua::Lua, paths: impl IntoLuaMulti) -> mlua::Result<PathUse
 	Ok(PathUserData { path })
 }
 
-pub trait IntoPathUserData {
-	fn to_path_userdata(self) -> PathUserData;
-}
+// pub trait IntoPathUserData {
+// 	fn to_path_userdata(self) -> PathUserData;
+// }
 
 // impl<T: Into<PathBuf>> IntoPathUserData for T {
 // 	fn to_path_userdata(self) -> PathUserData {

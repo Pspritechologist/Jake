@@ -29,7 +29,6 @@ const DIR_OUT: &str = "output_dir";
 const DIR_PLUG: &str = "plugins_dir";
 const DIR_LAY: &str = "layout_dir";
 const FILES: &str = "files";
-const NEW_FILE: &str = "new_file";
 
 #[derive(Debug, Clone, Default)]
 pub struct LuaResult {

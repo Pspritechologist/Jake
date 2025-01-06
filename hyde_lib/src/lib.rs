@@ -38,11 +38,15 @@ pub struct HydeConfig {
 	pub layout_dir: PathBuf,
 }
 
-pub fn process_project(config: &HydeConfig) -> Result<(), Error> {
-	let files = collect_src(config)?;
+#[derive(Debug, Clone, Default)]
+struct HydeProject {
+	pub files: Vec<HydeFile>,
+	pub layouts: HashMap<String, String>,
+}
 
+pub fn process_project(config: &HydeConfig) -> Result<(), Error> {
 	let lua = unsafe { mlua::Lua::unsafe_new() };
-	let lua::LuaResult { tags, converters, filters, files } = lua::setup_lua_state(&lua, config, files)?;
+	let lua::LuaResult { tags, converters, filters, mut files } = lua::setup_lua_state(&lua, config, collect_src(config)?)?;
 
 	let mut liquid_builder = liquid::ParserBuilder::with_stdlib();
 
@@ -56,15 +60,9 @@ pub fn process_project(config: &HydeConfig) -> Result<(), Error> {
 		liquid_builder = liquid_builder.filter(lua::filter::Lua { filter, func, lua: lua.clone() });
 	}
 
-	let liquid = liquid_builder.build()?;
+	files.retain(|f| f.to_write);
 
-	// walkdir::WalkDir::new(&config.source_dir)
-	// 	.into_iter()
-	// 	.filter_map(Result::<_, _>::ok)
-	// 	.filter(|e| e.file_type().is_file())
-	// 	.try_for_each(|e| process_file(config, &liquid, e))?;
-	// 	// .map(|e| process_file(config, &liquid, e))
-	// 	// .collect::<Result<_, _>>()?;
+	let liquid = liquid_builder.build()?;
 
 	for file in files {
 		// process_file(config, &liquid, file)?;
@@ -100,8 +98,6 @@ fn collect_src(config: &HydeConfig) -> Result<Vec<HydeFile>, Error> {
 				.map(serde_yaml::from_reader::<_, HashMap<String, FrontMatter>>)
 				.transpose()? {
 
-				// let rel_path = entry.path().strip_prefix(source_dir).expect("Directory not in source directory");
-
 				frontmatter_glob.extend_reserve(config.len());
 				for (glob, frontmatter) in config {
 					frontmatter_glob.push((globset::GlobBuilder::new(&format!("{}/{}", entry.path().to_string_lossy(), glob))
@@ -115,13 +111,13 @@ fn collect_src(config: &HydeConfig) -> Result<Vec<HydeFile>, Error> {
 			continue;
 		}
 
-		let path = entry.path()
+		let rel_path = entry.path()
 			.strip_prefix(source_dir)
 			.ok()
 			.and_then(|p| RelativePathBuf::from_path(p).ok())
 			.expect("File not in source directory");
 
-		let mut front_matter = frontmatter::parse_frontmatter(entry.path())?.unwrap_or_default();
+		let mut front_matter = FrontMatter::default();
 
 		for (glob, fm) in &frontmatter_glob {
 			if glob.is_match(entry.path()) {
@@ -129,10 +125,14 @@ fn collect_src(config: &HydeConfig) -> Result<Vec<HydeFile>, Error> {
 			}
 		}
 
+		if let Some(fm) = frontmatter::file_frontmatter(entry.path())? {
+			front_matter.extend(fm);
+		}
+
 		files.push(HydeFile {
 			to_write: false,
-			source: Some(path.clone()),
-			output: path,
+			source: Some(rel_path.clone()),
+			output: rel_path,
 			front_matter,
 			content: String::new(),
 		});
@@ -173,34 +173,18 @@ fn collect_src(config: &HydeConfig) -> Result<Vec<HydeFile>, Error> {
 // }
 
 fn parse_content(config: &HydeConfig, liquid: &liquid::Parser, content: String, mut frontmatter: liquid::Object) -> Result<String, Error> {
-	let mut lines = content.lines();
-	if let Some(line) = lines.next() && line.trim_end() == "---" {
-		// let end = lines.position(|l| l.trim_end() == "---").ok_or("No closing frontmatter")?;
+	let mut content = liquid.parse(&content)?.render(&frontmatter)?;
 
-		let raw_frontmatter: String = lines.take_while(|l| l.trim_end() != "---").collect::<Vec<_>>().join("\n");
+	if let Some(layout) = frontmatter.get("layout") {
+		let layout = config.layout_dir.join(layout.to_kstr());
 
-		if !raw_frontmatter.is_empty() {
-			let parsed_frontmatter: serde_json::Value = serde_yaml::from_str(&raw_frontmatter)?;
-	
-			frontmatter.extend(liquid::model::to_object(&parsed_frontmatter)?);
-		}
-		
-		let content: String = content.lines().skip(1).skip_while(|l| l.trim_end() != "---").skip(1).collect::<Vec<_>>().join("\n");
-		let mut content = liquid.parse(&content)?.render(&frontmatter)?;
+		let layout = std::fs::read_to_string(layout.with_extension("html"))?;
 
-		if let Some(layout) = frontmatter.get("layout") {
-			let layout = config.layout_dir.join(layout.to_kstr());
+		frontmatter.remove("layout");
+		frontmatter.insert("content".into(), liquid_core::Value::scalar(content));
 
-			let layout = std::fs::read_to_string(layout.with_extension("html"))?;
-
-			frontmatter.remove("layout");
-			frontmatter.insert("content".into(), liquid_core::Value::scalar(content));
-
-			content = parse_content(config, liquid, layout, frontmatter)?;
-		}
-
-		return Ok(content);
+		content = parse_content(config, liquid, layout, frontmatter)?;
 	}
-	
-	Ok(content)
+
+	return Ok(content);
 }
