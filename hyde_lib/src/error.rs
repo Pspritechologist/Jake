@@ -9,6 +9,7 @@ pub enum Error {
 	Io(Arc<std::io::Error>),
 	Serde(SerdeError),
 	Glob(globset::Error),
+	WithContext { context: String, error: Box<Error> },
 }
 
 impl std::error::Error for Error {}
@@ -41,6 +42,12 @@ impl From<globset::Error> for Error {
 	fn from(e: globset::Error) -> Self { Error::Glob(e) }
 }
 
+impl<P: Into<String>, E: Into<Error>> From<(P, E)> for Error {
+	fn from((context, error): (P, E)) -> Self {
+		Error::WithContext { context: context.into(), error: Box::new(error.into()) }
+	}
+}
+
 #[derive(Debug, Clone)]
 pub enum SerdeError {
 	Json(Arc<serde_json::Error>),
@@ -59,19 +66,20 @@ impl Error {
 	/// If this error is a Liquid or Lua error containing a
 	/// dynamic Error, recursively downcast it to that Error.  
 	/// Otherwise, return the error as-is.
-	pub fn downcast(&self) -> &Error {
+	pub fn downcast(self) -> Error {
 		match self {
 			Error::Lua(mlua::Error::ExternalError(e)) if e.is::<Error>()
-				=> e.downcast_ref::<Error>().expect("Validated above").downcast(),
-			liquid @ Error::Liquid(e) => match std::error::Error::source(e).and_then(|e| e.downcast_ref::<Error>()) {
-				Some(e) => e.downcast(),
-				None => liquid
+				=> e.downcast_ref::<Error>().expect("Validated above").clone().downcast(),
+			Error::Liquid(e) => match std::error::Error::source(&e).and_then(|e| e.downcast_ref::<Error>()) {
+				Some(e) => e.clone().downcast(),
+				None => Error::Liquid(e),
 			},
+			Error::WithContext { context, error } => Error::from((context, error.downcast())),
 			e => e
 		}
 	}
 
-	pub fn print_error(&self) {
+	pub fn print_error(self) {
 		println!("{}", self.downcast());
 	}
 }
@@ -87,6 +95,7 @@ impl Display for Error {
 			Error::Serde(SerdeError::Json(e)) => write!(f, "JSON error: {e}"),
 			Error::Serde(SerdeError::Yaml(e)) => write!(f, "YAML error: {e}"),
 			Error::Glob(e) => write!(f, "Glob pattern error: {e}"),
+			Error::WithContext { context, error } => write!(f, "{error} (context - {context})"),
 		}
 	}
 }
@@ -122,6 +131,10 @@ pub trait ErrorExtensions: Into<Error> {
 		self.into()
 	}
 
+	fn into_error_with(self, file: impl LazyContext) -> Error {
+		Error::WithContext { context: file.eval(), error: Box::new(self.into_error()) }
+	}
+
 	fn print_as_error(self) {
 		self.into_error().print_error();
 	}
@@ -133,6 +146,7 @@ pub trait ResultExtensions<T> {
 	fn into_liquid_result(self) -> Result<T, liquid::Error>;
 	fn into_lua_result(self) -> Result<T, mlua::Error>;
 	fn into_error_result(self) -> Result<T, Error>;
+	fn into_error_result_with(self, context: impl LazyContext) -> Result<T, Error> where Self: Sized;
 	fn handle_as_error(self) where Self: Sized {
 		if let Err(e) = self.into_error_result() {
 			e.print_error();
@@ -152,4 +166,26 @@ impl<E: ErrorExtensions, T> ResultExtensions<T> for Result<T, E> {
 	fn into_error_result(self) -> Result<T, Error> {
 		self.map_err(E::into_error)
 	}
+
+	fn into_error_result_with(self, context: impl LazyContext) -> Result<T, Error> where Self: Sized {
+		self.map_err(|e| e.into_error_with(context))
+	}
+}
+
+pub trait LazyContext {
+    fn eval(self) -> String;
+}
+
+impl LazyContext for String {
+    fn eval(self) -> String { self }
+}
+
+impl LazyContext for &str {
+	fn eval(self) -> String { self.to_string() }
+}
+
+impl<T: FnOnce() -> S, S: Into<String>> LazyContext for T {
+    fn eval(self) -> String {
+        self().into()
+    }
 }

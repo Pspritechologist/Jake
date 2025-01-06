@@ -19,7 +19,7 @@
 
 use std::{collections::{BTreeMap, HashMap}, path::PathBuf};
 
-use error::Error;
+use error::{Error, ResultExtensions};
 use frontmatter::FrontMatter;
 use liquid::ValueView;
 use lua::general_api::file::HydeFile;
@@ -93,17 +93,19 @@ fn collect_src(config: &HydeConfig) -> Result<Vec<HydeFile>, Error> {
 		if entry.file_type().is_dir() {
 			let conf_path = entry.path().join(DEFAULT_FRONTMATTER_FILE);
 			if let Some(config) = conf_path.exists()
-				.then(|| std::fs::File::open(conf_path))
+				.then(|| std::fs::File::open(&conf_path))
 				.transpose()?
 				.map(serde_yaml::from_reader::<_, HashMap<String, FrontMatter>>)
-				.transpose()? {
+				.transpose()
+				.into_error_result_with(|| conf_path.to_string_lossy())? {
 
 				frontmatter_glob.extend_reserve(config.len());
 				for (glob, frontmatter) in config {
 					frontmatter_glob.push((globset::GlobBuilder::new(&format!("{}/{}", entry.path().to_string_lossy(), glob))
 						.backslash_escape(true)
 						.empty_alternates(true)
-						.build()?
+						.build()
+						.into_error_result_with(|| conf_path.to_string_lossy())?
 						.compile_matcher(), frontmatter));
 				}
 			}

@@ -6,10 +6,10 @@ pub mod liquid_user_data;
 pub mod liquid_view;
 pub mod general_api;
 
-use crate::{error::Error, HydeConfig};
+use crate::{error::{Error, ResultExtensions}, HydeConfig};
 use general_api::{file::{FileUserData, HydeFile}, path::PathUserData};
-use mlua::LuaSerdeExt;
-use std::collections::HashMap;
+use mlua::{ErrorContext, LuaSerdeExt};
+use std::{borrow::Borrow, collections::HashMap};
 
 const INIT_LUA_PATHS: &[&str] = &[
 	"init.lua",
@@ -93,7 +93,14 @@ pub fn setup_lua_state(lua: &mlua::Lua, config: &HydeConfig, files: Vec<HydeFile
 	let filters = global.get(FILTERS_TABLE)?;
 	let converters = global.get(CONVERTERS_TABLE)?;
 
-	let files: Vec<HydeFile> = site_files.sequence_values().map(|f| f.and_then(|f: FileUserData| f.into_file(lua))).collect::<Result<_, _>>()?;
+	let files: Vec<HydeFile> = site_files.sequence_values().map(|f|
+		f.and_then(|f: FileUserData| {
+			let clone = f.output.clone();
+			f.into_file(lua).into_error_result_with(
+				|| clone.borrow().map_or(String::from("Unknown file"), |p| p.path.to_string())
+			).into_lua_result()
+		})
+	).collect::<Result<_, _>>()?;
 	// let files = site_files.sequence_values::<mlua::Value>().map(|v| lua.from_value(v?)).collect::<Result<_, _>>()?;
 	// let files = site_files.sequence_values().map(|v| lua.from_value(v?)).collect::<Result<_, _>>()?;
 
