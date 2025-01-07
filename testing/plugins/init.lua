@@ -2,7 +2,7 @@ function TAGS.my_tag()
 	return "That is awesome"
 end
 
-print(package.path)
+-- print(package.path)
 
 local titlecase = require "titlecase"
 
@@ -45,13 +45,32 @@ function TAGS.liquid_context(word)
 end
 
 for i, file in ipairs(SITE.files) do
-	print(i)
 	if file.source.ext == "md" then
 		file.path.ext = "html"
 	end
 
-	print("", file.source, " -> ", file.path)
 	for k, v in pairs(file.data) do
-		print("", k, "=", v)
+		if k == "colors" then
+			local color_map = {
+				red		= { 255, 0  , 0   },
+				green	= { 0  , 255, 0   },
+				blue	= { 0  , 0  , 255 },
+				yellow	= { 255, 255, 0   },
+				orange	= { 255, 165, 0   },
+				purple	= { 128, 0  , 128 },
+				magenta	= { 255, 0  , 255 },
+				cyan	= { 0  , 255, 255 },
+			}
+
+			local colors = {}
+			for _, color in ipairs(v) do
+				local rgb = color_map[color]
+				if rgb then
+					table.insert(colors, rgb)
+				end
+			end
+
+			file.data.colors = colors
+		end
 	end
 end

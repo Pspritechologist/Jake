@@ -8,26 +8,36 @@
 #![warn(
 	clippy::todo,
 	clippy::unimplemented,
+	// clippy::expect_used,
 )]
 
 #![deny(clippy::unwrap_used,
-	// clippy::expect_used,
 	clippy::panic,
 	clippy::panic_in_result_fn,
 	clippy::panicking_overflow_checks,
 )]
 
-use std::{collections::{BTreeMap, HashMap}, path::PathBuf};
-
-use error::{Error, ResultExtensions};
-use frontmatter::FrontMatter;
-use liquid::ValueView;
-use lua::general_api::file::HydeFile;
-use relative_path::RelativePathBuf;
-
 pub mod error;
+
 mod lua;
 mod frontmatter;
+mod jsonify_tag;
+
+use lua::general_api::file::HydeFile;
+use error::{Error, HydeError::*, ResultExtensions};
+use frontmatter::{combine_frontmatters, FrontMatter};
+use kstring::{backend::{BoxedStr, HeapStr}, KString};
+use liquid::ValueView;
+use relative_path::{RelativePath, RelativePathBuf};
+use std::{collections::HashMap, path::PathBuf};
+use std::borrow::Cow::{Owned as Cowned, Borrowed as Cowed};
+
+static CONFIG: std::sync::OnceLock<&HydeConfig> = std::sync::OnceLock::new();
+#[inline]
+#[allow(clippy::expect_used)]
+fn config<'a>() -> &'a HydeConfig {
+	CONFIG.get().expect("Config not set")
+}
 
 #[derive(Debug, Clone)]
 pub struct HydeConfig {
@@ -38,19 +48,25 @@ pub struct HydeConfig {
 	pub layout_dir: PathBuf,
 }
 
-#[derive(Debug, Clone, Default)]
-struct HydeProject {
-	pub files: Vec<HydeFile>,
-	pub layouts: HashMap<String, String>,
-}
+// #[derive(Debug, Clone, Default)]
+// struct HydeProject {
+// 	pub files: Vec<HydeFile>,
+// 	pub layouts: HashMap<String, String>,
+// }
 
 pub fn process_project(config: &HydeConfig) -> Result<(), Error> {
+	// SAFETY: Config is reset at the start of this function and
+	// is only accessed during the function's execution.
+	#[allow(clippy::missing_transmute_annotations, clippy::expect_used)]
+	CONFIG.set(unsafe { std::mem::transmute(config) }).expect("Config already set");
+
 	let lua = unsafe { mlua::Lua::unsafe_new() };
-	let lua::LuaResult { tags, converters, filters, mut files } = lua::setup_lua_state(&lua, config, collect_src(config)?)?;
+	let lua::LuaResult { tags, converters, filters, mut files } = lua::setup_lua_state(&lua, collect_src()?)?;
 
 	let mut liquid_builder = liquid::ParserBuilder::with_stdlib();
 
-	liquid_builder = liquid_builder.block(lua::block::LuaBlock { lua: lua.clone() });
+	liquid_builder = liquid_builder.block(lua::block::LuaBlock { lua: lua.clone() })
+		.filter(jsonify_tag::Jsonify);
 
 	for (tag, func) in tags {
 		liquid_builder = liquid_builder.tag(lua::tag::LuaTag { tag, func, lua: lua.clone() });
@@ -62,17 +78,63 @@ pub fn process_project(config: &HydeConfig) -> Result<(), Error> {
 
 	files.retain(|f| f.to_write);
 
+	let layouts = collect_layouts()?;
+
 	let liquid = liquid_builder.build()?;
 
+	let global: liquid::Object = serde_yaml::from_str(&std::fs::read_to_string(config.project_dir.join("hyde.yml"))?)?;
+
 	for file in files {
-		// process_file(config, &liquid, file)?;
+		match file.source.as_ref().map(|src| frontmatter::file_content(src.to_logical_path(&config.source_dir))).transpose()? {
+			Some(Some(content)) => {
+				let objs = [ Cowed(&global), Cowned(liquid::to_object(&file.front_matter)?) ];
+				let mut content = parse_content(&layouts, &liquid, content, file.source.as_deref(), combine_frontmatters(objs))?;
+
+				let output = file.output.to_logical_path(&config.output_dir);
+				std::fs::create_dir_all(output.parent().ok_or_else(|| UnexpectedFilePath(output.clone()))?)?;
+
+				// if let Some(ext) = output.extension() && ext == "html" {
+				// 	if true {
+				// 		let mut buf = Vec::new();
+				// 		let mut rewriter = lol_html::HtmlRewriter::new(
+				// 			lol_html::Settings {
+				// 				element_content_handlers: vec![
+
+				// 				],
+				// 				..Default::default()
+				// 			},
+				// 			|c: &[u8]| buf.extend(c.iter().copied())
+				// 		);
+				// 		rewriter.write(content.as_bytes()).expect("owo");
+				// 		rewriter.end().expect("uwu");
+
+				// 		content = String::from_utf8(buf).expect("Rewritten HTML is valid UTF8");
+				// 	}
+
+				// 	if true {
+				// 		let min = minify_html::minify(content.as_bytes(), &minify_html::Cfg { minify_css: true, minify_js: true, ..Default::default() });
+				// 		content = String::from_utf8(min).expect("Minified HTML is valid UTF8");
+				// 	}
+				// }
+
+				std::fs::write(output, content)?;
+			},
+			Some(None) => {
+				let output = file.output.to_logical_path(&config.output_dir);
+				std::fs::create_dir_all(output.parent().ok_or_else(|| UnexpectedFilePath(output.clone()))?)?;
+				let source = file.source.expect("Validated above").to_logical_path(&config.source_dir);
+				std::fs::copy(source, output)?;
+				// std::os::unix::fs::symlink(source, output)?; //? This is really really funny.
+			},
+			None => todo!(),
+		}
 	}
 
 	Ok(())
 }
 
-fn collect_src(config: &HydeConfig) -> Result<Vec<HydeFile>, Error> {
-	let HydeConfig { source_dir, output_dir, plugins_dir, layout_dir, .. } = config;
+fn collect_src() -> Result<Vec<HydeFile>, Error> {
+	let HydeConfig { project_dir, source_dir, output_dir, plugins_dir, layout_dir, .. } = config();
 
 	std::fs::create_dir_all(output_dir)?;
 	std::fs::create_dir_all(plugins_dir)?;
@@ -92,12 +154,14 @@ fn collect_src(config: &HydeConfig) -> Result<Vec<HydeFile>, Error> {
 	for entry in dir {
 		if entry.file_type().is_dir() {
 			let conf_path = entry.path().join(DEFAULT_FRONTMATTER_FILE);
+			let get_rel_conf_path = || conf_path.strip_prefix(project_dir).expect("File not in proj directory").to_string_lossy();
+
 			if let Some(config) = conf_path.exists()
 				.then(|| std::fs::File::open(&conf_path))
 				.transpose()?
 				.map(serde_yaml::from_reader::<_, HashMap<String, FrontMatter>>)
 				.transpose()
-				.into_error_result_with(|| conf_path.to_string_lossy())? {
+				.into_error_result_with(get_rel_conf_path)? {
 
 				frontmatter_glob.extend_reserve(config.len());
 				for (glob, frontmatter) in config {
@@ -105,7 +169,7 @@ fn collect_src(config: &HydeConfig) -> Result<Vec<HydeFile>, Error> {
 						.backslash_escape(true)
 						.empty_alternates(true)
 						.build()
-						.into_error_result_with(|| conf_path.to_string_lossy())?
+						.into_error_result_with(get_rel_conf_path)?
 						.compile_matcher(), frontmatter));
 				}
 			}
@@ -117,7 +181,7 @@ fn collect_src(config: &HydeConfig) -> Result<Vec<HydeFile>, Error> {
 			.strip_prefix(source_dir)
 			.ok()
 			.and_then(|p| RelativePathBuf::from_path(p).ok())
-			.expect("File not in source directory");
+			.ok_or_else(|| UnexpectedFilePath(entry.path().to_owned()))?;
 
 		let mut front_matter = FrontMatter::default();
 
@@ -132,7 +196,7 @@ fn collect_src(config: &HydeConfig) -> Result<Vec<HydeFile>, Error> {
 		}
 
 		files.push(HydeFile {
-			to_write: false,
+			to_write: true,
 			source: Some(rel_path.clone()),
 			output: rel_path,
 			front_matter,
@@ -143,50 +207,104 @@ fn collect_src(config: &HydeConfig) -> Result<Vec<HydeFile>, Error> {
 	Ok(files)
 }
 
-// pub fn process_file(config: &HydeConfig, liquid: &liquid::Parser, file: HydeFile) -> Result<(), Error> {
-// 	let HydeConfig { source_dir, output_dir, .. } = config;
-
-// 	let output = output_dir.join(file.output);
-
-// 	std::fs::create_dir_all(output.parent().expect("File has no parent"))?;
-
-// 	let content = file.source.map(|src| std::fs::read_to_string(src));
-// 	let content = parse_content(config, liquid, content, liquid::Object::new());
-
-// 	fn markdown_ops() -> markdown::Options {
-// 		markdown::Options {
-// 			compile: markdown::CompileOptions {
-// 				allow_dangerous_html: true,
-// 				allow_dangerous_protocol: true,
-// 				gfm_tagfilter: false,
-// 				..markdown::CompileOptions::gfm()
-// 			},
-// 			parse: markdown::ParseOptions::gfm()
-// 		}
-// 	}
-
-// 	match file.path().extension().and_then(std::ffi::OsStr::to_str) {
-// 		Some("md") => std::fs::write(output.with_extension("html"), markdown::to_html_with_options(&content?, &markdown_ops()).expect("Markdown doesn't panic"))?,
-// 		Some("scss") => std::fs::write(output.with_extension("css"), grass::from_string(content?.as_str(), &grass::Options::default())?)?,
-// 		_ => std::fs::write(output, content.map(|c| c.as_bytes().to_vec()).or_else(|_| std::fs::read(input))?)?,
-// 	}
-
-// 	Ok(())
-// }
-
-fn parse_content(config: &HydeConfig, liquid: &liquid::Parser, content: String, mut frontmatter: liquid::Object) -> Result<String, Error> {
-	let mut content = liquid.parse(&content)?.render(&frontmatter)?;
-
-	if let Some(layout) = frontmatter.get("layout") {
-		let layout = config.layout_dir.join(layout.to_kstr());
-
-		let layout = std::fs::read_to_string(layout.with_extension("html"))?;
-
-		frontmatter.remove("layout");
-		frontmatter.insert("content".into(), liquid_core::Value::scalar(content));
-
-		content = parse_content(config, liquid, layout, frontmatter)?;
+fn parse_content(
+	layouts: &HashMap<KString, HydeLayout>,
+	liquid: &liquid::Parser,
+	content: impl AsRef<str>,
+	path: Option<&RelativePath>,
+	mut frontmatter: liquid::Object
+) -> Result<String, Error> {
+	fn markdown_ops() -> markdown::Options {
+		markdown::Options {
+			compile: markdown::CompileOptions {
+				allow_dangerous_html: true,
+				allow_dangerous_protocol: true,
+				gfm_tagfilter: false,
+				..markdown::CompileOptions::gfm()
+			},
+			parse: markdown::ParseOptions {
+				constructs: markdown::Constructs {
+					code_indented: false,
+					..markdown::Constructs::gfm()
+				},
+				..markdown::ParseOptions::gfm()
+			},
+		}
 	}
 
-	return Ok(content);
+	let context = || path.as_ref().map_or(String::from("Unknown file"), |p| p.to_string());
+
+	let content = liquid.parse(content.as_ref())
+		.into_error_result_with(context)?
+		.render(&frontmatter)
+		.into_error_result_with(context)?;
+
+	let mut content = match path.as_ref().expect("Validated in a different function uwu").extension() {
+		Some("md") => {
+			markdown::to_html_with_options(&content, &markdown_ops()).expect("Markdown doesn't panic")
+		},
+		// Some("scss") => grass::from_string(&content, &grass::Options::default())?,
+		_ => content,
+	};
+
+	if let Some(layout) = frontmatter.get("layout") {
+		let layout = layouts.get(layout.to_kstr().as_str()).ok_or_else(|| LayoutNotFound(layout.to_kstr().into()))?;
+
+		frontmatter.remove("layout");
+
+		let mut frontmatter = if let Some(layout_frontmatter) = layout.frontmatter.as_ref() {
+			combine_frontmatters([ Cowned(frontmatter), Cowned(liquid::to_object(&layout_frontmatter)?) ])
+		} else {
+			frontmatter
+		};
+
+		frontmatter.insert("content".into(), liquid_core::Value::scalar(content));
+
+		content = parse_content(layouts, liquid, &layout.content, Some(&layout.path), frontmatter)
+			.into_error_result_with(|| format!("{} + {}", context(), layout.path))?;
+	}
+
+	Ok(content)
+}
+
+struct HydeLayout {
+	pub path: RelativePathBuf,
+	pub frontmatter: Option<FrontMatter>,
+	pub content: BoxedStr,
+}
+
+fn collect_layouts() -> Result<HashMap<KString, HydeLayout>, Error> {
+	let HydeConfig { layout_dir, .. } = config();
+
+	let mut layouts = HashMap::new();
+
+	let dir = walkdir::WalkDir::new(layout_dir)
+		.into_iter()
+		.filter_entry(|e| !e.file_name().to_string_lossy().starts_with('.'))
+		.filter_map(Result::ok)
+		.filter(|f| f.file_type().is_file());
+
+	for entry in dir {
+		let rel_path = entry.path()
+			.strip_prefix(layout_dir)
+			.ok()
+			.and_then(|p| RelativePathBuf::from_path(p).ok())
+			.ok_or_else(|| UnexpectedFilePath(entry.path().to_owned()))?;
+
+		let name = KString::from_ref(rel_path.file_stem().ok_or(Misc("Layout file has no name"))?);
+
+		let (frontmatter, content) = frontmatter::file_frontmatter_content(entry.path())
+			.into_error_result_with(|| rel_path.as_str())?
+			.ok_or(FileNotUtf8(rel_path.clone()))?;
+
+		let layout = HydeLayout {
+			path: rel_path,
+			frontmatter,
+			content: BoxedStr::from_string(content),
+		};
+
+		layouts.insert(name, layout);
+	}
+
+	Ok(layouts)
 }

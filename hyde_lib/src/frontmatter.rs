@@ -1,7 +1,8 @@
 use crate::error::{Error, ResultExtensions};
-use std::{fs::File, io::{BufRead, BufReader, ErrorKind, Read, Seek, Write}, path::Path};
+use kstring::KString;
+use std::{collections::BTreeMap, fs::File, io::{BufRead, BufReader, ErrorKind, Read, Seek}, path::Path};
 
-pub type FrontMatter = serde_json::Map<String, serde_json::Value>;
+pub type FrontMatter = BTreeMap<KString, serde_json::Value>;
 
 /// Reads the frontmatter of a file, if present.
 /// 
@@ -75,6 +76,10 @@ pub fn file_frontmatter_content(path: impl AsRef<Path>) -> Result<Option<(Option
 	Ok(Some((frontmatter, buf)))
 }
 
+pub fn combine_frontmatters<const S: usize>(objs: [std::borrow::Cow<liquid::Object>; S]) -> liquid::Object {
+	objs.into_iter().flat_map(|o| o.into_owned()).collect()
+}
+
 /// Reads the content of a reader, skipping the frontmatter if present.  
 /// Does not return Err if the reader is not valid UTF-8.
 /// 
@@ -115,7 +120,9 @@ fn parse_frontmatter(buf: &mut BufReader<File>, path: &Path) -> Result<Option<Fr
 		.intersperse_with(|| Ok(String::from('\n')))
 		.try_collect()?;
 
-	serde_yaml::from_str(&yaml).into_error_result_with(|| path.to_string_lossy())
+	Ok(Some(serde_yaml::from_str(&yaml).into_error_result_with(
+		|| path.strip_prefix(&crate::config().project_dir).expect("File not in project dir").to_string_lossy()
+	)?))
 }
 
 fn is_frontmatter_delimiter(line: impl AsRef<str>) -> bool {

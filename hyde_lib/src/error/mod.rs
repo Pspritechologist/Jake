@@ -1,3 +1,7 @@
+mod hyde_error;
+
+pub use hyde_error::HydeError;
+
 use std::{fmt::Display, sync::Arc};
 
 #[derive(Debug, Clone)]
@@ -9,6 +13,7 @@ pub enum Error {
 	Io(Arc<std::io::Error>),
 	Serde(SerdeError),
 	Glob(globset::Error),
+	HydeError(HydeError),
 	WithContext { context: String, error: Box<Error> },
 }
 
@@ -42,6 +47,10 @@ impl From<globset::Error> for Error {
 	fn from(e: globset::Error) -> Self { Error::Glob(e) }
 }
 
+impl From<HydeError> for Error {
+	fn from(e: HydeError) -> Self { Error::HydeError(e) }
+}
+
 impl<P: Into<String>, E: Into<Error>> From<(P, E)> for Error {
 	fn from((context, error): (P, E)) -> Self {
 		Error::WithContext { context: context.into(), error: Box::new(error.into()) }
@@ -66,21 +75,21 @@ impl Error {
 	/// If this error is a Liquid or Lua error containing a
 	/// dynamic Error, recursively downcast it to that Error.  
 	/// Otherwise, return the error as-is.
-	pub fn downcast(self) -> Error {
+	pub fn downcast(&self) -> std::borrow::Cow<Error> {
 		match self {
 			Error::Lua(mlua::Error::ExternalError(e)) if e.is::<Error>()
-				=> e.downcast_ref::<Error>().expect("Validated above").clone().downcast(),
-			Error::Liquid(e) => match std::error::Error::source(&e).and_then(|e| e.downcast_ref::<Error>()) {
-				Some(e) => e.clone().downcast(),
-				None => Error::Liquid(e),
+				=> e.downcast_ref::<Error>().expect("Validated above").downcast(),
+			orig @ Error::Liquid(e) => match std::error::Error::source(e).and_then(|e| e.downcast_ref::<Error>()) {
+				Some(e) => e.downcast(),
+				None => std::borrow::Cow::Borrowed(orig),
 			},
-			Error::WithContext { context, error } => Error::from((context, error.downcast())),
-			e => e
+			Error::WithContext { context, error } => std::borrow::Cow::Owned(Error::from((context, error.downcast().into_owned()))),
+			e => std::borrow::Cow::Borrowed(e),
 		}
 	}
 
 	pub fn print_error(self) {
-		println!("{}", self.downcast());
+		eprintln!("{}", self.downcast());
 	}
 }
 
@@ -95,6 +104,7 @@ impl Display for Error {
 			Error::Serde(SerdeError::Json(e)) => write!(f, "JSON error: {e}"),
 			Error::Serde(SerdeError::Yaml(e)) => write!(f, "YAML error: {e}"),
 			Error::Glob(e) => write!(f, "Glob pattern error: {e}"),
+			Error::HydeError(e) => write!(f, "Hyde error: {e}"),
 			Error::WithContext { context, error } => write!(f, "{error} (context - {context})"),
 		}
 	}

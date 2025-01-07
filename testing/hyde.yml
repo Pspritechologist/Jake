@@ -1,0 +1,12 @@
+site:
+  static_files:
+  - name: uwu
+    is_font: false
+    extname: gib
+  - name: owo
+    is_font: false
+    extname: gub
+  - name: guh
+    is_font: false
+    extname: goob
+  server_endpoints: []

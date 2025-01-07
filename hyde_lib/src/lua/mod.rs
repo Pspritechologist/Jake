@@ -6,7 +6,7 @@ pub mod liquid_user_data;
 pub mod liquid_view;
 pub mod general_api;
 
-use crate::{error::{Error, ResultExtensions}, HydeConfig};
+use crate::{error::{Error, ResultExtensions}};
 use general_api::{file::{FileUserData, HydeFile}, path::PathUserData};
 use mlua::{ErrorContext, LuaSerdeExt};
 use std::{borrow::Borrow, collections::HashMap};
@@ -39,7 +39,9 @@ pub struct LuaResult {
 	pub files: Vec<HydeFile>,
 }
 
-pub fn setup_lua_state(lua: &mlua::Lua, config: &HydeConfig, files: Vec<HydeFile>) -> Result<LuaResult, Error> {
+pub fn setup_lua_state(lua: &mlua::Lua, files: Vec<HydeFile>) -> Result<LuaResult, Error> {
+	let config = crate::config();
+
 	let Some(init_file) = INIT_LUA_PATHS.iter()
 		.map(|path| config.plugins_dir.join(path))
 		.find(|path| path.exists()) else {

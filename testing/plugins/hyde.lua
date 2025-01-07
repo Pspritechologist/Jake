@@ -13,7 +13,7 @@ TAGS = {}
 --- 
 --- Functions should be added to this table under the
 --- desired name of the filter.
----@type table<string, fun(any, Args, ...): any>
+---@type table<string, fun(target: any, named_args: Args, pos_args...: any): any>
 FILTERS = {}
 
 --- Global data for the Hyde project.  

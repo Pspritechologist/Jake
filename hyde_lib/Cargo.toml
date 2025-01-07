@@ -8,10 +8,13 @@ relative-path = { version = "*", features = [ "serde" ] }
 serde = "*"
 serde_yaml = "*"
 serde_json = "*"
+# minify-html = "*"
+# lol_html = "*"
 walkdir = "*"
 globset = { version = "*", features = [ "serde1" ] }
 markdown = "1.0.0-alpha.21"
 grass = { version = "*", default-features = false }
 liquid = "*"
+kstring = { version = "*", features = [ "serde" ] }
 liquid-core = "*"
 mlua = { version = "*", features = [ "luajit", "serialize", "send", "userdata-wrappers" ] }

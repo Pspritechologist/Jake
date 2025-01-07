@@ -1,6 +1,7 @@
 ---
 title: Testing
-layout: base
+layout: peng_one
+colors: [ red, blue, green, blue, magenta, blue, green, blue, red ]
 ---
 # Testing!!
 
@@ -55,5 +56,6 @@ Here's some HTML *in* the Markdown:
 <!-- Some JavaScript that will randomize the color of the word 'test' -->
 <span name="test">test</span>
 <script>
-	document.querySelector('[name="test"]').style.color = `rgb(${Math.floor(Math.random() * 256)}, ${Math.floor(Math.random() * 256)}, ${Math.floor(Math.random() * 256)})`;
+	const colors = {{ colors | jsonify }};
+	document.querySelector('[name="test"]').style.color = `rgb(${colors[Math.floor(Math.random() * colors.length)].join(', ')})`;
 </script>

@@ -40,7 +40,7 @@ impl FileUserData {
 			source: file.source.map(PathUserData::new),
 			output: PathUserData::new(file.output).to_typed(lua),
 			data: lua.create_table_from(
-				file.front_matter.into_iter().map(|(k, v)| (k, lua.to_value(&v).expect("All frontmatter values are valid Lua values"))),
+				file.front_matter.into_iter().map(|(k, v)| (mlua::String::wrap(k), lua.to_value(&v).expect("All frontmatter values are valid Lua values"))),
 			).expect("Table failed :("),
 			lua_string: OnceCell::new(),
 		}

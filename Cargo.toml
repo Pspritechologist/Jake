@@ -18,3 +18,7 @@ members = [ "hyde_lib" ]
 
 [profile.release]
 lto = true
+
+[profile.profiling]
+inherits = "release"
+debug = true
