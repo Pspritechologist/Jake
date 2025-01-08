@@ -5,13 +5,13 @@ edition = "2021"
 
 [dependencies]
 jake_lib = { path = "jake_lib" }
-clap = { version = "*", features = [ "derive", "env" ] }
-clap_complete = "*"
-notify = "*"
-axum = "*"
-tower-http = { version = "*", features = [ "fs" ] }
-tower-livereload = "*"
-tokio = { version = "*", features = [ "full" ] }
+clap = { version = "4.5.24", features = [ "derive", "env" ] }
+clap_complete = "4.5.41"
+notify = "7.0.0"
+axum = "0.8.1"
+tower-http = { version = "0.6.2", features = [ "fs" ] }
+tower-livereload = "0.9.5"
+tokio = { version = "1.43.0", features = [ "full" ] }
 
 [workspace]
 members = [ "jake_lib" ]
