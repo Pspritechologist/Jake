@@ -6,10 +6,8 @@ pub mod liquid_user_data;
 pub mod liquid_view;
 pub mod general_api;
 
-use crate::{error::{Error, ResultExtensions}};
-use general_api::{file::{FileUserData, HydeFile}, path::PathUserData};
-use mlua::{ErrorContext, LuaSerdeExt};
-use std::{borrow::Borrow, collections::HashMap};
+use crate::{data_strctures::{HydeFileT1, HydeFileT2}, error::{Error, HydeError, ResultExtensions}};
+use general_api::{file::FileUserData, path::PathUserData};
 
 const INIT_LUA_PATHS: &[&str] = &[
 	"init.lua",
@@ -32,20 +30,25 @@ const FILES: &str = "files";
 
 #[derive(Debug, Clone, Default)]
 pub struct LuaResult {
-	pub tags: HashMap<String, mlua::Function>,
-	pub converters: HashMap<String, mlua::Function>,
-	pub filters: HashMap<String, mlua::Function>,
+	pub tags: Vec<(String, mlua::Function)>,
+	pub converters: Vec<(String, mlua::Function)>,
+	pub filters: Vec<(String, mlua::Function)>,
 
-	pub files: Vec<HydeFile>,
+	pub files: Vec<HydeFileT2>,
 }
 
-pub fn setup_lua_state(lua: &mlua::Lua, files: Vec<HydeFile>) -> Result<LuaResult, Error> {
+pub fn setup_lua_state(lua: &mlua::Lua, files: Vec<HydeFileT1>) -> Result<LuaResult, Error> {
 	let config = crate::config();
 
 	let Some(init_file) = INIT_LUA_PATHS.iter()
 		.map(|path| config.plugins_dir.join(path))
 		.find(|path| path.exists()) else {
-			return Ok(LuaResult::default());
+			return Ok(LuaResult {
+				files: files.into_iter()
+					.flat_map(|f| FileUserData::from_file(f, lua).map(|f| f.into_file(lua)))
+					.collect::<Result<_, _>>()?,
+				..Default::default()
+			});
 		};
 
 	let init = std::fs::read_to_string(&init_file)?;
@@ -72,8 +75,7 @@ pub fn setup_lua_state(lua: &mlua::Lua, files: Vec<HydeFile>) -> Result<LuaResul
 	site_data.set(DIR_LAY, config.layout_dir.as_os_str())?;
 
 	let site_files = lua.create_table_from(
-		files.into_iter().enumerate().map(|(i, file)| (i + 1, FileUserData::from_file(file, lua)))
-		// files.into_iter().enumerate().map(|(i, f)| (i + 1, lua.to_value(&f).expect("Known data")))
+		files.into_iter().enumerate().map(|(i, file)| (i + 1, FileUserData::from_file(file, lua).expect("Userdata failed uwu"))) //TODO: Iter tools thing
 	)?;
 	site_data.set(FILES, &site_files)?;
 
@@ -87,24 +89,37 @@ pub fn setup_lua_state(lua: &mlua::Lua, files: Vec<HydeFile>) -> Result<LuaResul
 
 	lua.load(&init)
 		.set_name(init_file.strip_prefix(&config.project_dir)
-			.expect("init.lua not in plugins dir")
+			.map_err(|_| HydeError::UnexpectedFilePath(init_file.clone()))?
 			.to_string_lossy())
 		.exec()?;
 
-	let tags = global.get(TAGS_TABLE)?;
-	let filters = global.get(FILTERS_TABLE)?;
-	let converters = global.get(CONVERTERS_TABLE)?;
+	let tags = global.get::<mlua::Table>(TAGS_TABLE)?.pairs().try_collect()?;
+	let filters = global.get::<mlua::Table>(FILTERS_TABLE)?.pairs().try_collect()?;
+	let converters = global.get::<mlua::Table>(CONVERTERS_TABLE)?.pairs().try_collect()?;
 
-	let files: Vec<HydeFile> = site_files.sequence_values().map(|f|
+	let files: Vec<HydeFileT2> = site_files.sequence_values().map(|f|
 		f.and_then(|f: FileUserData| {
 			let clone = f.output.clone();
-			f.into_file(lua).into_error_result_with(
-				|| clone.borrow().map_or(String::from("Unknown file"), |p| p.path.to_string())
-			).into_lua_result()
+			let context = || clone.borrow().map_or(String::from("Unknown file"), |p| p.path().to_string());
+			f.into_file(lua).into_error_result_with(context).into_lua_result()
 		})
 	).collect::<Result<_, _>>()?;
+
 	// let files = site_files.sequence_values::<mlua::Value>().map(|v| lua.from_value(v?)).collect::<Result<_, _>>()?;
 	// let files = site_files.sequence_values().map(|v| lua.from_value(v?)).collect::<Result<_, _>>()?;
 
-	Ok(LuaResult { tags, converters, filters, files })
+	// let post_processor: Option<mlua::Either<mlua::Function, HashMap<mlua::String, mlua::Function>>> = global.get(FILE_POSTPROC_FUNC)?;
+	// let post_processor = post_processor.map(|e| match e {
+	// 	mlua::Either::Left(func) => Ok(mlua::Either::Left(func)),
+	// 	mlua::Either::Right(table) => {
+	// 		let table: HashMap<mlua::String, mlua::Function> = table.pairs().map(|pair| {
+	// 			let (k, v): (mlua::String, mlua::Function) = pair?;
+	// 			Ok((k, v))
+	// 		}).try_collect()?;
+
+	// 		Ok(mlua::Either::Right(table))
+	// 	},
+	// }).transpose()?;
+
+	Ok(LuaResult { tags, converters, filters, files, /* post_processor */ })
 }

@@ -37,14 +37,22 @@ for _, fruit in ipairs(fruits) do
 	end
 end
 
-function TAGS.liquid_context(word)
-	data = TEMPLATE.data.title
-	TEMPLATE.data.title.owo = 'awa'
+-- function TAGS.liquid_context(word)
+-- 	data = TEMPLATE.data.title
+-- 	TEMPLATE.data.title.owo = 'awa'
 
-	return TEMPLATE.data.title() .. " " .. word
-end
+-- 	return TEMPLATE.data.title() .. " " .. word
+-- end
+
+local rands = {}
 
 for i, file in ipairs(SITE.files) do
+	table.insert(rands, math.random(1, 50))
+	if rands[table.maxn(rands)] == 1 then
+		file:ignore()
+		goto continue
+	end
+
 	if file.source.ext == "md" then
 		file.path.ext = "html"
 	end
@@ -73,4 +81,36 @@ for i, file in ipairs(SITE.files) do
 			file.data.colors = colors
 		end
 	end
+
+	::continue::
 end
+
+print(table.concat(rands, ", "))
+
+-- local page = File.new()
+-- page.content = [[
+-- 	This page was generated through Lua :)
+
+-- 	{{ some_value }}
+-- 	{{ wow }}
+-- ]]
+-- page.data.some_value = "This is a value from Lua!"
+-- page.data.wow = "Wowza!"
+
+-- page.path = "owo/uwu.html" --[[@as Path]]
+
+-- table.insert(SITE.files, page)
+
+table.insert(SITE.files, File.new {
+	content = [[
+		This page was generated through Lua :)
+
+		{{ some_value }}
+		{{ wow }}
+	]],
+	data = {
+		some_value = "This is a value from Lua!",
+		wow = "Wowza!"
+	},
+	output = "owo/uwu.html"
+})

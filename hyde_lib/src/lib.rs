@@ -19,13 +19,16 @@
 
 pub mod error;
 
+pub use data_strctures::HydeConfig;
+
 mod lua;
 mod frontmatter;
 mod jsonify_tag;
+pub(crate) mod data_strctures;
 
-use lua::general_api::file::HydeFile;
 use error::{Error, HydeError::*, ResultExtensions};
 use frontmatter::{combine_frontmatters, FrontMatter};
+use data_strctures::{FileContent, HydeFileT1};
 use kstring::{backend::{BoxedStr, HeapStr}, KString};
 use liquid::ValueView;
 use relative_path::{RelativePath, RelativePathBuf};
@@ -38,21 +41,6 @@ static CONFIG: std::sync::OnceLock<&HydeConfig> = std::sync::OnceLock::new();
 fn config<'a>() -> &'a HydeConfig {
 	CONFIG.get().expect("Config not set")
 }
-
-#[derive(Debug, Clone)]
-pub struct HydeConfig {
-	pub project_dir: PathBuf,
-	pub output_dir: PathBuf,
-	pub source_dir: PathBuf,
-	pub plugins_dir: PathBuf,
-	pub layout_dir: PathBuf,
-}
-
-// #[derive(Debug, Clone, Default)]
-// struct HydeProject {
-// 	pub files: Vec<HydeFile>,
-// 	pub layouts: HashMap<String, String>,
-// }
 
 pub fn process_project(config: &HydeConfig) -> Result<(), Error> {
 	// SAFETY: Config is reset at the start of this function and
@@ -85,10 +73,12 @@ pub fn process_project(config: &HydeConfig) -> Result<(), Error> {
 	let global: liquid::Object = serde_yaml::from_str(&std::fs::read_to_string(config.project_dir.join("hyde.yml"))?)?;
 
 	for file in files {
-		match file.source.as_ref().map(|src| frontmatter::file_content(src.to_logical_path(&config.source_dir))).transpose()? {
-			Some(Some(content)) => {
+		if !file.to_write { continue; }
+		
+		match file.content {
+			FileContent::Utf8(content) => {
 				let objs = [ Cowed(&global), Cowned(liquid::to_object(&file.front_matter)?) ];
-				let mut content = parse_content(&layouts, &liquid, content, file.source.as_deref(), combine_frontmatters(objs))?;
+				let mut content = parse_content(&layouts, &liquid, content, file.source.as_option(), combine_frontmatters(objs))?;
 
 				let output = file.output.to_logical_path(&config.output_dir);
 				std::fs::create_dir_all(output.parent().ok_or_else(|| UnexpectedFilePath(output.clone()))?)?;
@@ -119,21 +109,23 @@ pub fn process_project(config: &HydeConfig) -> Result<(), Error> {
 
 				std::fs::write(output, content)?;
 			},
-			Some(None) => {
+			FileContent::Binary => {
 				let output = file.output.to_logical_path(&config.output_dir);
 				std::fs::create_dir_all(output.parent().ok_or_else(|| UnexpectedFilePath(output.clone()))?)?;
-				let source = file.source.expect("Validated above").to_logical_path(&config.source_dir);
+
+				const MSG: &str = "Only files with a src can be binary";
+				let source = file.source.into_option().expect(MSG).to_logical_path(&config.source_dir);
+
 				std::fs::copy(source, output)?;
 				// std::os::unix::fs::symlink(source, output)?; //? This is really really funny.
 			},
-			None => todo!(),
 		}
 	}
 
 	Ok(())
 }
 
-fn collect_src() -> Result<Vec<HydeFile>, Error> {
+fn collect_src() -> Result<Vec<HydeFileT1>, Error> {
 	let HydeConfig { project_dir, source_dir, output_dir, plugins_dir, layout_dir, .. } = config();
 
 	std::fs::create_dir_all(output_dir)?;
@@ -191,16 +183,22 @@ fn collect_src() -> Result<Vec<HydeFile>, Error> {
 			}
 		}
 
-		if let Some(fm) = frontmatter::file_frontmatter(entry.path())? {
-			front_matter.extend(fm);
-		}
+		let content = if let Some((fm, content)) = frontmatter::file_frontmatter_content(entry.path())? {
+			if let Some(fm) = fm {
+				front_matter.extend(fm);
+			}
+			FileContent::Utf8(content)
+		} else {
+			FileContent::Binary
+		};
 
-		files.push(HydeFile {
-			to_write: true,
-			source: Some(rel_path.clone()),
-			output: rel_path,
+		files.push(HydeFileT1 {
+			source: rel_path,
 			front_matter,
-			content: String::new(),
+			content,
+			// to_write: true,
+			// output: rel_path,
+			// content: String::new(),
 		});
 	}
 
@@ -211,7 +209,7 @@ fn parse_content(
 	layouts: &HashMap<KString, HydeLayout>,
 	liquid: &liquid::Parser,
 	content: impl AsRef<str>,
-	path: Option<&RelativePath>,
+	path: Option<impl AsRef<RelativePath>>,
 	mut frontmatter: liquid::Object
 ) -> Result<String, Error> {
 	fn markdown_ops() -> markdown::Options {
@@ -232,20 +230,20 @@ fn parse_content(
 		}
 	}
 
-	let context = || path.as_ref().map_or(String::from("Unknown file"), |p| p.to_string());
+	let context = || path.as_ref().map_or(String::from("Lua-generated File"), |p| p.as_ref().to_string());
 
 	let content = liquid.parse(content.as_ref())
 		.into_error_result_with(context)?
 		.render(&frontmatter)
 		.into_error_result_with(context)?;
 
-	let mut content = match path.as_ref().expect("Validated in a different function uwu").extension() {
+	let mut content = if let Some(path) = &path { match path.as_ref().extension() {
 		Some("md") => {
 			markdown::to_html_with_options(&content, &markdown_ops()).expect("Markdown doesn't panic")
 		},
 		// Some("scss") => grass::from_string(&content, &grass::Options::default())?,
 		_ => content,
-	};
+	} } else { content };
 
 	if let Some(layout) = frontmatter.get("layout") {
 		let layout = layouts.get(layout.to_kstr().as_str()).ok_or_else(|| LayoutNotFound(layout.to_kstr().into()))?;

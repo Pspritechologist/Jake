@@ -1,3 +1,5 @@
+use super::*;
+use mlua::LuaSerdeExt;
 use liquid_core::{
 	Expression,
 	Language,
@@ -7,8 +9,6 @@ use liquid_core::{
 	TagReflection,
 	TagTokenIter,
 };
-
-use super::*;
 
 #[derive(Debug, Clone)]
 pub struct LuaTag {

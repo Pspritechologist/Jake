@@ -1,7 +1,6 @@
-use crate::{frontmatter::FrontMatter, lua, HydeConfig};
 use super::{path::PathUserData, *};
-use std::{cell::OnceCell, collections::HashMap, fmt::Write, ops::Deref};
-use mlua::{FromLua, IntoLua, Lua, LuaSerdeExt, SerializeOptions, UserData};
+use crate::data_strctures::{HydeFileT1, HydeFileT2};
+use mlua::{FromLua, IntoLua, Lua, LuaSerdeExt, UserData};
 use relative_path::RelativePathBuf;
 
 pub const SOURCE_FIELD: &str = "source";
@@ -10,60 +9,55 @@ pub const CONTENT_FIELD: &str = "content";
 pub const DATA_FIELD: &str = "data";
 pub const TO_WRITE_FIELD: &str = "to_write";
 pub const IGNORE_METHOD: &str = "ignore";
-
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct HydeFile {
-	pub to_write: bool,
-	pub source: Option<RelativePathBuf>,
-	pub output: RelativePathBuf,
-	pub content: String,
-	pub front_matter: FrontMatter,
-}
+pub const POSTPROC_FIELD: &str = "post_proc";
+pub const IS_TEXT_FIELD: &str = "is_text";
+pub const IS_BIN_FIELD: &str = "is_binary";
 
 #[derive(Debug, Clone)]
 pub struct FileUserData {
 	pub to_write: bool,
 	pub source: Option<PathUserData>,
 	pub output: TypedUserData<PathUserData>,
-	pub content: String,
+	pub content: Option<mlua::String>,
 	pub data: mlua::Table,
-	lua_string: OnceCell<mlua::String>,
+	pub post_processor: Option<mlua::Function>,
 }
 
 impl FileUserData {
 	pub const CLASS_NAME: &'static str = "File";
 
-	pub fn from_file(file: HydeFile, lua: &Lua) -> Self {
-		Self {
-			to_write: file.to_write,
-			content: file.content,
-			source: file.source.map(PathUserData::new),
-			output: PathUserData::new(file.output).to_typed(lua),
+	pub fn from_file(file: HydeFileT1, lua: &Lua) -> mlua::Result<Self> {
+		Ok(Self {
+			to_write: true,
+			content: file.content.into_option().map(|c| lua.create_string(c)).transpose()?,
+			source: PathUserData::new(&file.source).into(),
+			output: PathUserData::new(file.source).to_typed(lua),
 			data: lua.create_table_from(
 				file.front_matter.into_iter().map(|(k, v)| (mlua::String::wrap(k), lua.to_value(&v).expect("All frontmatter values are valid Lua values"))),
-			).expect("Table failed :("),
-			lua_string: OnceCell::new(),
-		}
+			)?,
+			post_processor: None,
+		})
 	}
 
-	pub fn into_file(self, lua: &Lua) -> mlua::Result<HydeFile> {
-		Ok(HydeFile {
+	pub fn into_file(self, lua: &Lua) -> mlua::Result<HydeFileT2> {
+		Ok(HydeFileT2 {
 			to_write: self.to_write,
-			source: self.source.map(|path| path.path),
-			output: self.output.borrow()?.path.clone(),
-			content: self.content,
+			source: self.source.map(|path| path.into_path()).into(),
+			output: self.output.borrow()?.path().to_owned(),
+			content: self.content.map(|c| c.to_string_lossy()).into(), //TODO: and here...
 			front_matter: lua.from_value(mlua::Value::Table(self.data))?,
+			post_processor: self.post_processor,
 		})
 	}
 
 	pub fn new(lua: &Lua) -> mlua::Result<Self> {
 		Ok(Self {
 			to_write: true,
-			content: String::new(),
+			content: Some(lua.create_string("")?),
 			source: None,
 			output: TypedUserData::from_ser_data(PathUserData::default(), lua),
 			data: lua.create_table()?,
-			lua_string: OnceCell::new(),
+			post_processor: None,
 		})
 	}
 }
@@ -77,17 +71,17 @@ impl FromLua for FileUserData {
 		} else if value.is_table() {
 			let file = lua.from_value(value)?;
 
-			Ok(FileUserData::from_file(file, lua))
+			FileUserData::from_file(file, lua)
 		} else {
-			Err(mlua::Error::runtime(format!("Expected a table or a userdata, got {:?}", value.type_name())))
+			Err(mlua::Error::runtime(format!("Expected a table or a {FILE}, got {:?}", value.type_name(), FILE = FileUserData::CLASS_NAME)))
 		}
 	}
 }
 
 impl UserData for FileUserData {
 	fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
-		fields.add_field_method_get(SOURCE_FIELD, |lua, this| {
-			this.source.clone().into_lua(lua)
+		fields.add_field_method_get(SOURCE_FIELD, |_, this| {
+			Ok(this.source.clone())
 		});
 
 		fields.add_field_method_get(DATA_FIELD, |_, this| Ok(this.data.clone()));
@@ -109,14 +103,20 @@ impl UserData for FileUserData {
 			Ok(())
 		});
 
-		fields.add_field_method_get(CONTENT_FIELD, |lua, this| {
-			Ok(this.lua_string.get_or_try_init(|| lua.create_string(this.content.as_str()))?.clone())
-		});
+		fields.add_field_method_get(CONTENT_FIELD, |_, this| Ok(this.content.clone()));
 		fields.add_field_method_set(CONTENT_FIELD, |_, this, content: mlua::String| {
-			this.content.clear();
-			this.content.write_str(&content.to_str()?).expect("Writing to a String");
-			this.lua_string.set(content).expect("Failed to set OnceCell");
-			Ok(())
+			if this.content.is_some() {
+				this.content = Some(content);
+				Ok(())
+			} else {
+				let msg = format!(
+					"Cannot set content of a binary file: {}",
+					this.source.as_ref().map_or_else(|| this.output.borrow()
+						.map(|p| p.path().to_string())
+						.unwrap_or(String::from("Unknown file")), |p| p.path().to_string())
+				);
+				Err(mlua::Error::RuntimeError(msg))
+			}
 		});
 
 		fields.add_field_method_get(TO_WRITE_FIELD, |_, this| Ok(this.to_write));
@@ -124,6 +124,17 @@ impl UserData for FileUserData {
 			this.to_write = to_write;
 			Ok(())
 		});
+
+		fields.add_field_method_get(POSTPROC_FIELD, |_, this| {
+			Ok(this.post_processor.clone())
+		});
+		fields.add_field_method_set(POSTPROC_FIELD, |_, this, post_processor: Option<mlua::Function>| {
+			this.post_processor = post_processor;
+			Ok(())
+		});
+
+		fields.add_field_method_get(IS_TEXT_FIELD, |_, this| Ok(this.content.is_some()));
+		fields.add_field_method_get(IS_BIN_FIELD, |_, this| Ok(this.content.is_none()));
 	}
 
 	fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
@@ -132,8 +143,23 @@ impl UserData for FileUserData {
 			Ok(())
 		});
 
-		methods.add_function(super::NEW_FUNCTION, |lua, ()| {
-			FileUserData::new(lua)
+		methods.add_function(super::NEW_FUNCTION, |lua, value: Option<mlua::Table>| {
+			if let Some(value) = value {
+				let content = value.get::<Option<_>>("content").transpose();
+				let data = value.get::<Option<_>>("data").transpose();
+				let output = value.get::<Option<PathUserData>>("output")?;
+				let post_processor = value.get("post_processor")?;
+				
+				Ok(FileUserData {
+					content: Some(content.unwrap_or_else(|| lua.create_string(""))?),
+					data: data.unwrap_or_else(|| lua.create_table())?,
+					output: TypedUserData::from_ser_data(output.unwrap_or_default(), lua),
+					post_processor,
+					..FileUserData::new(lua)?
+				})
+			} else {
+				FileUserData::new(lua)
+			}
 		});
 	}
 }

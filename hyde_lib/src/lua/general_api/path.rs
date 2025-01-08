@@ -1,9 +1,9 @@
-use mlua::{IntoLua, IntoLuaMulti, UserData};
+use mlua::{FromLua, IntoLua, UserData};
 use relative_path::{RelativePath, RelativePathBuf};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PathUserData {
-	pub path: RelativePathBuf,
+	path: RelativePathBuf,
 }
 
 impl From<RelativePathBuf> for PathUserData {
@@ -15,12 +15,33 @@ impl From<RelativePathBuf> for PathUserData {
 impl PathUserData {
 	pub const CLASS_NAME: &'static str = "Path";
 
+	/// Should always contain a normalized path.
 	pub fn new(path: impl Into<RelativePathBuf>) -> Self {
 		Self { path: path.into() }
 	}
 
 	pub fn from(path: impl AsRef<RelativePath>) -> Self {
-		Self { path: path.as_ref().to_relative_path_buf() }
+		Self { path: path.as_ref().normalize() }
+	}
+
+	pub fn path(&self) -> &RelativePath {
+		&self.path
+	}
+
+	pub fn into_path(self) -> RelativePathBuf {
+		self.path
+	}
+}
+
+impl FromLua for PathUserData {
+	fn from_lua(value: mlua::Value, _: &mlua::Lua) -> mlua::Result<Self> {
+		if let Some(userdata) = value.as_userdata() && userdata.is::<PathUserData>() {
+			Ok(userdata.borrow::<PathUserData>()?.clone())
+		} else if let Some(value) = value.as_str() {
+			Ok(PathUserData::new(RelativePath::new(&value).normalize()))
+		} else {
+			Err(mlua::Error::runtime(format!("Expected a string or a {CLASS}, got {:?}", value.type_name(), CLASS = PathUserData::CLASS_NAME)))
+		}
 	}
 }
 
@@ -38,10 +59,10 @@ impl UserData for PathUserData {
 			this.path.parent().map(|p| PathUserData::new(p).into_lua(lua)).unwrap_or(Ok(mlua::Nil))
 		});
 		
-		fields.add_field_method_get("end", |lua, this| {
+		fields.add_field_method_get("last", |lua, this| {
 			this.path.file_name().map(|p| p.into_lua(lua)).unwrap_or(Ok(mlua::Nil))
 		});
-		fields.add_field_method_set("end", |_, this, name: mlua::String| {
+		fields.add_field_method_set("last", |_, this, name: mlua::String| {
 			this.path.set_file_name(&*name.to_str()?);
 			Ok(())
 		});
@@ -61,71 +82,45 @@ impl UserData for PathUserData {
 
 			Ok(())
 		});
-
-		// fields.add_field_method_get("is_dir", |_, this| Ok(this.path.is_dir()));
-		// fields.add_field_method_get("is_file", |_, this| Ok(this.path.is_file()));
-
-		// fields.add_field_method_get("is_absolute", |_, this| Ok(this.path.is_absolute()));
-		// fields.add_field_method_get("is_relative", |_, this| Ok(this.path.is_relative()));
-
-		// fields.add_field_method_get("exists", |_, this| Ok(this.path.exists()));
 	}
 
 	fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
-		methods.add_meta_method(mlua::MetaMethod::ToString, |lua, this, ()| this.path.as_str().into_lua(lua));
+		methods.add_meta_method(mlua::MetaMethod::ToString, |lua, this, ()|
+			this.path.as_str().into_lua(lua)
+		);
+		methods.add_meta_method(mlua::MetaMethod::Concat, |_, this, other: PathUserData| {
+			let mut path = this.path.clone();
+			path.push(&other.path);
+			Ok(PathUserData::new(path))
+		});
+		methods.add_meta_method(mlua::MetaMethod::Add, |_, this, other: PathUserData| {
+			let mut path = this.path.clone();
+			path.push(&other.path);
+			Ok(PathUserData::new(path))
+		});
+		methods.add_meta_method(mlua::MetaMethod::Eq, |_, this, other: PathUserData|
+			// Paths are inherently normalized.
+			Ok(this.path == other.path)
+		);
+		methods.add_meta_method(mlua::MetaMethod::Len, |_, this, ()|
+			Ok(this.path.components().count())
+		);
+		methods.add_meta_method(mlua::MetaMethod::Index, |lua, this, i: usize| {
+			let i = i.saturating_sub(1); // Lua is 1-indexed.
+			this.path.components().nth(i).map(|c| c.as_str().into_lua(lua)).transpose()
+		});
 
-		methods.add_method_mut("push", |_, this, path: mlua::Value| {
-			if let Some(path) = path.as_userdata() && path.is::<PathUserData>() {
-				let path = path.borrow::<PathUserData>().expect("Verified above");
-				this.path.push(&path.path);
-			} else if let Some(path) = path.as_str() {
-				this.path.push(&*path);
-			} else if path.is_nil() {
-				
-			} else {
-				this.path.push(&path.to_string()?);
-			}
+		methods.add_method_mut("push", |_, this, path: mlua::Variadic<Option<PathUserData>>| {
+			path.into_iter().flatten().for_each(|p| this.path.push(&p.path));
 
 			Ok(())
 		});
 
-		methods.add_function("join", |lua, paths: mlua::MultiValue| {
-			let path = join_paths(lua, paths)?;
-			path.into_lua(lua)
+		methods.add_function(super::NEW_FUNCTION, |_, path: Option<PathUserData>| Ok(path));
+		methods.add_function("join", |_, paths: mlua::Variadic<Option<PathUserData>>| {
+			let mut path = RelativePathBuf::new();
+			paths.into_iter().flatten().for_each(|p| path.push(&p.path));
+			Ok(PathUserData::new(path))
 		});
 	}
 }
-
-fn join_paths(lua: &mlua::Lua, paths: impl IntoLuaMulti) -> mlua::Result<PathUserData> {
-	let mut path = RelativePathBuf::new();
-	for p in paths.into_lua_multi(lua)? {
-		if let Some(p) = p.as_userdata() {
-			let p = p.borrow::<PathUserData>()?;
-			path.push(&p.path);
-		} else if let Some(p) = p.as_str() {
-			path.push(&*p);
-		} else if p.is_nil() {
-
-		} else {
-			path.push(&p.to_string()?);
-		}
-	}
-
-	Ok(PathUserData { path })
-}
-
-// pub trait IntoPathUserData {
-// 	fn to_path_userdata(self) -> PathUserData;
-// }
-
-// impl<T: Into<PathBuf>> IntoPathUserData for T {
-// 	fn to_path_userdata(self) -> PathUserData {
-// 		PathUserData::new(self)
-// 	}
-// }
-
-// impl<T: AsRef<std::path::Path>> IntoPathUserData for T {
-// 	fn to_path_userdata(self) -> PathUserData {
-// 		PathUserData::new(self)
-// 	}
-// }

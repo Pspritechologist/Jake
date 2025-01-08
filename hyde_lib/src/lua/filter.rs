@@ -1,4 +1,6 @@
 use super::*;
+use mlua::LuaSerdeExt;
+use std::collections::HashMap;
 use liquid_core::{
 	parser::{FilterArguments, ParameterReflection},
 	Expression,
@@ -9,7 +11,6 @@ use liquid_core::{
 	Value,
 	ValueView
 };
-use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct Lua {
