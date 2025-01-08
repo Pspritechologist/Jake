@@ -1,9 +1,12 @@
-#![feature(try_blocks)]
-#![feature(let_chains)]
-#![feature(iterator_try_collect)]
-#![feature(once_cell_try)]
-#![feature(extend_one)]
-#![feature(iter_intersperse)]
+#![feature(
+	try_blocks,
+	let_chains,
+	iterator_try_collect,
+	once_cell_try,
+	extend_one,
+	iter_intersperse,
+	// result_flattening,
+)]
 
 #![warn(
 	clippy::todo,
@@ -32,7 +35,7 @@ use data_strctures::{FileContent, HydeFileT1};
 use kstring::{backend::{BoxedStr, HeapStr}, KString};
 use liquid::ValueView;
 use relative_path::{RelativePath, RelativePathBuf};
-use std::{collections::HashMap, path::PathBuf};
+use std::collections::HashMap;
 use std::borrow::Cow::{Owned as Cowned, Borrowed as Cowed};
 
 static CONFIG: std::sync::OnceLock<&HydeConfig> = std::sync::OnceLock::new();
@@ -116,8 +119,11 @@ pub fn process_project(config: &HydeConfig) -> Result<(), Error> {
 				const MSG: &str = "Only files with a src can be binary";
 				let source = file.source.into_option().expect(MSG).to_logical_path(&config.source_dir);
 
-				std::fs::copy(source, output)?;
-				// std::os::unix::fs::symlink(source, output)?; //? This is really really funny.
+				if let (Ok(src), Ok(out)) = (source.metadata().and_then(|src| src.modified()), output.metadata().and_then(|src| src.modified())) && src < out {
+				} else {
+					std::fs::copy(source, output)?;
+					// std::os::unix::fs::symlink(source, output)?; //? This is really really funny.
+				}
 			},
 		}
 	}
