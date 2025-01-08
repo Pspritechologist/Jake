@@ -1,10 +1,10 @@
 [package]
-name = "hyde"
+name = "jake"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-hyde_lib = { path = "hyde_lib" }
+jake_lib = { path = "jake_lib" }
 clap = { version = "*", features = [ "derive", "env" ] }
 clap_complete = "*"
 notify = "*"
@@ -14,7 +14,7 @@ tower-livereload = "*"
 tokio = { version = "*", features = [ "full" ] }
 
 [workspace]
-members = [ "hyde_lib" ]
+members = [ "jake_lib" ]
 
 [profile.release]
 lto = true

@@ -7,15 +7,15 @@
 		{
 			"type": "lldb",
 			"request": "launch",
-			"name": "Debug Hyde Serve",
+			"name": "Debug Jake Serve",
 			"cargo": {
 				"args": [
 					"build",
-					"--bin=hyde",
-					"--package=hyde",
+					"--bin=jake",
+					"--package=jake",
 				],
 				"filter": {
-					"name": "hyde",
+					"name": "jake",
 					"kind": "bin"
 				}
 			},
@@ -25,30 +25,30 @@
 			],
 			"cwd": "${workspaceFolder}",
 			"env": {
-				"HYDE_DIR": "${workspaceFolder}/testing/"
+				"JAKE_DIR": "${workspaceFolder}/testing/"
 			}
 		},
 		{
 			"type": "lldb",
 			"request": "launch",
-			"name": "Debug Hyde Build",
+			"name": "Debug Jake Build",
 			"cargo": {
 				"args": [
 					"build",
-					"--bin=hyde",
-					"--package=hyde",
+					"--bin=jake",
+					"--package=jake",
 					"--",
 					"serve",
 				],
 				"filter": {
-					"name": "hyde",
+					"name": "jake",
 					"kind": "bin"
 				}
 			},
 			"args": [],
 			"cwd": "${workspaceFolder}",
 			"env": {
-				"HYDE_DIR": "${workspaceFolder}/testing/"
+				"JAKE_DIR": "${workspaceFolder}/testing/"
 			}
 		},
 	]

@@ -1,6 +1,6 @@
-mod hyde_error;
+mod jake_error;
 
-pub use hyde_error::HydeError;
+pub use jake_error::JakeError;
 
 use std::{fmt::Display, sync::Arc};
 
@@ -13,7 +13,7 @@ pub enum Error {
 	Io(Arc<std::io::Error>),
 	Serde(SerdeError),
 	Glob(globset::Error),
-	HydeError(HydeError),
+	JakeError(JakeError),
 	WithContext { context: String, error: Box<Error> },
 }
 
@@ -47,8 +47,8 @@ impl From<globset::Error> for Error {
 	fn from(e: globset::Error) -> Self { Error::Glob(e) }
 }
 
-impl From<HydeError> for Error {
-	fn from(e: HydeError) -> Self { Error::HydeError(e) }
+impl From<JakeError> for Error {
+	fn from(e: JakeError) -> Self { Error::JakeError(e) }
 }
 
 impl<P: Into<String>, E: Into<Error>> From<(P, E)> for Error {
@@ -104,7 +104,7 @@ impl Display for Error {
 			Error::Serde(SerdeError::Json(e)) => write!(f, "JSON error: {e}"),
 			Error::Serde(SerdeError::Yaml(e)) => write!(f, "YAML error: {e}"),
 			Error::Glob(e) => write!(f, "Glob pattern error: {e}"),
-			Error::HydeError(e) => write!(f, "Hyde error: {e}"),
+			Error::JakeError(e) => write!(f, "Jake error: {e}"),
 			Error::WithContext { context, error } => write!(f, "{error} (context - {context})"),
 		}
 	}

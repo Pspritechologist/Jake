@@ -22,30 +22,30 @@
 
 pub mod error;
 
-pub use data_strctures::HydeConfig;
+pub use data_strctures::JakeConfig;
 
 mod lua;
 mod frontmatter;
 mod jsonify_tag;
 pub(crate) mod data_strctures;
 
-use error::{Error, HydeError::*, ResultExtensions};
+use error::{Error, JakeError::*, ResultExtensions};
 use frontmatter::{combine_frontmatters, FrontMatter};
-use data_strctures::{FileContent, HydeFileT1};
+use data_strctures::{FileContent, JakeFileT1};
 use kstring::{backend::{BoxedStr, HeapStr}, KString};
 use liquid::ValueView;
 use relative_path::{RelativePath, RelativePathBuf};
 use std::collections::HashMap;
 use std::borrow::Cow::{Owned as Cowned, Borrowed as Cowed};
 
-static CONFIG: std::sync::OnceLock<&HydeConfig> = std::sync::OnceLock::new();
+static CONFIG: std::sync::OnceLock<&JakeConfig> = std::sync::OnceLock::new();
 #[inline]
 #[allow(clippy::expect_used)]
-fn config<'a>() -> &'a HydeConfig {
+fn config<'a>() -> &'a JakeConfig {
 	CONFIG.get().expect("Config not set")
 }
 
-pub fn process_project(config: &HydeConfig) -> Result<(), Error> {
+pub fn process_project(config: &JakeConfig) -> Result<(), Error> {
 	// SAFETY: Config is reset at the start of this function and
 	// is only accessed during the function's execution.
 	#[allow(clippy::missing_transmute_annotations, clippy::expect_used)]
@@ -73,7 +73,7 @@ pub fn process_project(config: &HydeConfig) -> Result<(), Error> {
 
 	let liquid = liquid_builder.build()?;
 
-	let global: liquid::Object = serde_yaml::from_str(&std::fs::read_to_string(config.project_dir.join("hyde.yml"))?)?;
+	let global: liquid::Object = serde_yaml::from_str(&std::fs::read_to_string(config.project_dir.join("jake.yml"))?)?;
 
 	for file in files {
 		if !file.to_write { continue; }
@@ -131,8 +131,8 @@ pub fn process_project(config: &HydeConfig) -> Result<(), Error> {
 	Ok(())
 }
 
-fn collect_src() -> Result<Vec<HydeFileT1>, Error> {
-	let HydeConfig { project_dir, source_dir, output_dir, plugins_dir, layout_dir, .. } = config();
+fn collect_src() -> Result<Vec<JakeFileT1>, Error> {
+	let JakeConfig { project_dir, source_dir, output_dir, plugins_dir, layout_dir, .. } = config();
 
 	std::fs::create_dir_all(output_dir)?;
 	std::fs::create_dir_all(plugins_dir)?;
@@ -145,7 +145,7 @@ fn collect_src() -> Result<Vec<HydeFileT1>, Error> {
 		.filter_entry(|e| !e.file_name().to_string_lossy().starts_with('.'))
 		.filter_map(Result::ok);
 
-	const DEFAULT_FRONTMATTER_FILE: &str = ".hyde.yml";
+	const DEFAULT_FRONTMATTER_FILE: &str = ".jake.yml";
 
 	let mut frontmatter_glob: Vec<(globset::GlobMatcher, FrontMatter)> = Default::default();
 
@@ -198,7 +198,7 @@ fn collect_src() -> Result<Vec<HydeFileT1>, Error> {
 			FileContent::Binary
 		};
 
-		files.push(HydeFileT1 {
+		files.push(JakeFileT1 {
 			source: rel_path,
 			front_matter,
 			content,
@@ -212,7 +212,7 @@ fn collect_src() -> Result<Vec<HydeFileT1>, Error> {
 }
 
 fn parse_content(
-	layouts: &HashMap<KString, HydeLayout>,
+	layouts: &HashMap<KString, JakeLayout>,
 	liquid: &liquid::Parser,
 	content: impl AsRef<str>,
 	path: Option<impl AsRef<RelativePath>>,
@@ -271,14 +271,14 @@ fn parse_content(
 	Ok(content)
 }
 
-struct HydeLayout {
+struct JakeLayout {
 	pub path: RelativePathBuf,
 	pub frontmatter: Option<FrontMatter>,
 	pub content: BoxedStr,
 }
 
-fn collect_layouts() -> Result<HashMap<KString, HydeLayout>, Error> {
-	let HydeConfig { layout_dir, .. } = config();
+fn collect_layouts() -> Result<HashMap<KString, JakeLayout>, Error> {
+	let JakeConfig { layout_dir, .. } = config();
 
 	let mut layouts = HashMap::new();
 
@@ -301,7 +301,7 @@ fn collect_layouts() -> Result<HashMap<KString, HydeLayout>, Error> {
 			.into_error_result_with(|| rel_path.as_str())?
 			.ok_or(FileNotUtf8(rel_path.clone()))?;
 
-		let layout = HydeLayout {
+		let layout = JakeLayout {
 			path: rel_path,
 			frontmatter,
 			content: BoxedStr::from_string(content),

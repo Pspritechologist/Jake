@@ -85,7 +85,7 @@ for i, file in ipairs(SITE.files) do
 	::continue::
 end
 
-print(table.concat(rands, ", "))
+-- print(table.concat(rands, ", "))
 
 -- local page = File.new()
 -- page.content = [[

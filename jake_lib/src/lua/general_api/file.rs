@@ -1,5 +1,5 @@
 use super::{path::PathUserData, *};
-use crate::data_strctures::{HydeFileT1, HydeFileT2};
+use crate::data_strctures::{JakeFileT1, JakeFileT2};
 use mlua::{FromLua, IntoLua, Lua, LuaSerdeExt, UserData};
 use relative_path::RelativePathBuf;
 
@@ -26,7 +26,7 @@ pub struct FileUserData {
 impl FileUserData {
 	pub const CLASS_NAME: &'static str = "File";
 
-	pub fn from_file(file: HydeFileT1, lua: &Lua) -> mlua::Result<Self> {
+	pub fn from_file(file: JakeFileT1, lua: &Lua) -> mlua::Result<Self> {
 		Ok(Self {
 			to_write: true,
 			content: file.content.into_option().map(|c| lua.create_string(c)).transpose()?,
@@ -39,8 +39,8 @@ impl FileUserData {
 		})
 	}
 
-	pub fn into_file(self, lua: &Lua) -> mlua::Result<HydeFileT2> {
-		Ok(HydeFileT2 {
+	pub fn into_file(self, lua: &Lua) -> mlua::Result<JakeFileT2> {
+		Ok(JakeFileT2 {
 			to_write: self.to_write,
 			source: self.source.map(|path| path.into_path()).into(),
 			output: self.output.borrow()?.path().to_owned(),

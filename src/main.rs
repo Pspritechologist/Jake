@@ -6,20 +6,20 @@ mod cli;
 use std::sync::LazyLock;
 
 use cli::CliArgs;
-use hyde_lib::{error::ResultExtensions, HydeConfig};
+use jake_lib::{error::ResultExtensions, JakeConfig};
 use notify::Watcher;
 
 pub static ARGS: LazyLock<CliArgs> = LazyLock::new(<CliArgs as clap::Parser>::parse);
 
 fn main() {
-	use cli::HydeCommand::*;
+	use cli::JakeCommand::*;
 
 	match &ARGS.command {
 		Completion { shell } => cli::generate_completion(*shell),
-		Build => hyde_lib::process_project(&init_config()).handle_as_error(),
+		Build => jake_lib::process_project(&init_config()).handle_as_error(),
 		Serve { port } => serve(init_config(), port.unwrap_or(4000)),
 		Clean => {
-			let HydeConfig { output_dir, .. } = init_config();
+			let JakeConfig { output_dir, .. } = init_config();
 			if output_dir.exists() {
 				std::fs::remove_dir_all(&output_dir).handle_as_error();
 			}
@@ -27,18 +27,18 @@ fn main() {
 	}
 }
 
-fn init_config() -> HydeConfig {
+fn init_config() -> JakeConfig {
 	let paths = &ARGS.path_args;
 
 	let project_dir = paths.dir.as_ref().map_or(std::env::current_dir().unwrap(), |p| std::env::current_dir().unwrap().join(p));
 
-	// Check for the 'hyde.yml' file.
-	if !project_dir.join("hyde.yml").exists() {
-		eprintln!("No 'hyde.yml' file found in the project directory.");
+	// Check for the 'jake.yml' file.
+	if !project_dir.join("jake.yml").exists() {
+		eprintln!("No 'jake.yml' file found in the project directory.");
 		std::process::exit(1);
 	}
 
-	hyde_lib::HydeConfig {
+	jake_lib::JakeConfig {
 		source_dir: project_dir.join("src"),
 		output_dir: paths.out.to_owned().unwrap_or(project_dir.join("site")),
 		plugins_dir: project_dir.join("plugins"),
@@ -47,7 +47,7 @@ fn init_config() -> HydeConfig {
 	}
 }
 
-fn serve(config: HydeConfig, port: u16) {
+fn serve(config: JakeConfig, port: u16) {
 	let (tx, rx) = std::sync::mpsc::channel::<notify::Result<notify::Event>>();
 	let mut watcher = notify::recommended_watcher(tx).unwrap();
 	watcher.watch(&config.source_dir, notify::RecursiveMode::Recursive).unwrap();
@@ -89,7 +89,7 @@ fn serve(config: HydeConfig, port: u16) {
 		}
 
 		if to_reload {
-			hyde_lib::process_project(&config).handle_as_error();
+			jake_lib::process_project(&config).handle_as_error();
 
 			reload_handle.reload();
 			to_reload = false;

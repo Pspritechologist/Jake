@@ -3,14 +3,14 @@ use relative_path::RelativePathBuf;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct HydeFileT1 {
+pub struct JakeFileT1 {
 	pub source: RelativePathBuf,
 	pub front_matter: FrontMatter,
 	pub content: FileContent<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct HydeFileT2 {
+pub struct JakeFileT2 {
 	pub source: FileSource,
 	pub output: RelativePathBuf,
 	pub front_matter: FrontMatter,
@@ -21,7 +21,7 @@ pub struct HydeFileT2 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct HydeConfig {
+pub struct JakeConfig {
 	pub project_dir: PathBuf,
 	pub output_dir: PathBuf,
 	pub source_dir: PathBuf,

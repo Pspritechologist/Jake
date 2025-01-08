@@ -6,7 +6,7 @@ pub mod liquid_user_data;
 pub mod liquid_view;
 pub mod general_api;
 
-use crate::{data_strctures::{HydeFileT1, HydeFileT2}, error::{Error, HydeError, ResultExtensions}};
+use crate::{data_strctures::{JakeFileT1, JakeFileT2}, error::{Error, JakeError, ResultExtensions}};
 use general_api::{file::FileUserData, path::PathUserData};
 
 const INIT_LUA_PATHS: &[&str] = &[
@@ -34,10 +34,10 @@ pub struct LuaResult {
 	pub converters: Vec<(String, mlua::Function)>,
 	pub filters: Vec<(String, mlua::Function)>,
 
-	pub files: Vec<HydeFileT2>,
+	pub files: Vec<JakeFileT2>,
 }
 
-pub fn setup_lua_state(lua: &mlua::Lua, files: Vec<HydeFileT1>) -> Result<LuaResult, Error> {
+pub fn setup_lua_state(lua: &mlua::Lua, files: Vec<JakeFileT1>) -> Result<LuaResult, Error> {
 	let config = crate::config();
 
 	let Some(init_file) = INIT_LUA_PATHS.iter()
@@ -89,7 +89,7 @@ pub fn setup_lua_state(lua: &mlua::Lua, files: Vec<HydeFileT1>) -> Result<LuaRes
 
 	lua.load(&init)
 		.set_name(init_file.strip_prefix(&config.project_dir)
-			.map_err(|_| HydeError::UnexpectedFilePath(init_file.clone()))?
+			.map_err(|_| JakeError::UnexpectedFilePath(init_file.clone()))?
 			.to_string_lossy())
 		.exec()?;
 
@@ -97,7 +97,7 @@ pub fn setup_lua_state(lua: &mlua::Lua, files: Vec<HydeFileT1>) -> Result<LuaRes
 	let filters = global.get::<mlua::Table>(FILTERS_TABLE)?.pairs().try_collect()?;
 	let converters = global.get::<mlua::Table>(CONVERTERS_TABLE)?.pairs().try_collect()?;
 
-	let files: Vec<HydeFileT2> = site_files.sequence_values().map(|f|
+	let files: Vec<JakeFileT2> = site_files.sequence_values().map(|f|
 		f.and_then(|f: FileUserData| {
 			let clone = f.output.clone();
 			let context = || clone.borrow().map_or(String::from("Unknown file"), |p| p.path().to_string());

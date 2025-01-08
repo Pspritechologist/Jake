@@ -1,6 +1,6 @@
----@meta Hyde
+---@meta Jake
 
---- List of tags to be registered with Hyde.
+--- List of tags to be registered with Jake.
 --- 
 --- Functions should be added to this table under the
 --- desired name of the tag.
@@ -9,14 +9,14 @@ TAGS = {}
 
 ---@alias Args table<string, any>
 
---- List of filters to be registered with Hyde.
+--- List of filters to be registered with Jake.
 --- 
 --- Functions should be added to this table under the
 --- desired name of the filter.
 ---@type table<string, fun(target: any, named_args: Args, pos_args...: any): any>
 FILTERS = {}
 
---- Global data for the Hyde project.  
+--- Global data for the Jake project.  
 --- Includes config data, all files, paths, etc.
 ---@class SITE
 --- The root directory of the project.
@@ -66,7 +66,7 @@ File = {}
 ---@param data FileData?
 function File.new(data) end
 
---- Set whether this file should be ignored by Hyde.  
+--- Set whether this file should be ignored by Jake.  
 --- If no argument is given, the file is ignored.
 ---@param ignore boolean?
 function File:ignore(ignore) end
