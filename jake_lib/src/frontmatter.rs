@@ -120,9 +120,7 @@ fn parse_frontmatter(buf: &mut BufReader<File>, path: &Path) -> Result<Option<Fr
 		.intersperse_with(|| Ok(String::from('\n')))
 		.try_collect()?;
 
-	Ok(Some(serde_yaml::from_str(&yaml).into_error_result_with(
-		|| path.strip_prefix(&crate::config().project_dir).expect("File not in project dir").to_string_lossy()
-	)?))
+	Ok(Some(serde_yaml::from_str(&yaml)?))
 }
 
 fn is_frontmatter_delimiter(line: impl AsRef<str>) -> bool {

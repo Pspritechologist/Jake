@@ -38,21 +38,9 @@ use relative_path::{RelativePath, RelativePathBuf};
 use std::collections::HashMap;
 use std::borrow::Cow::{Owned as Cowned, Borrowed as Cowed};
 
-static CONFIG: std::sync::OnceLock<&JakeConfig> = std::sync::OnceLock::new();
-#[inline]
-#[allow(clippy::expect_used)]
-fn config<'a>() -> &'a JakeConfig {
-	CONFIG.get().expect("Config not set")
-}
-
 pub fn process_project(config: &JakeConfig) -> Result<(), Error> {
-	// SAFETY: Config is reset at the start of this function and
-	// is only accessed during the function's execution.
-	#[allow(clippy::missing_transmute_annotations, clippy::expect_used)]
-	CONFIG.set(unsafe { std::mem::transmute(config) }).expect("Config already set");
-
 	let lua = unsafe { mlua::Lua::unsafe_new() };
-	let lua::LuaResult { tags, converters, filters, mut files } = lua::setup_lua_state(&lua, collect_src()?)?;
+	let lua::LuaResult { tags, converters, filters, mut files } = lua::setup_lua_state(&lua, config, collect_src(config)?)?;
 
 	let mut liquid_builder = liquid::ParserBuilder::with_stdlib();
 
@@ -69,7 +57,7 @@ pub fn process_project(config: &JakeConfig) -> Result<(), Error> {
 
 	files.retain(|f| f.to_write);
 
-	let layouts = collect_layouts()?;
+	let layouts = collect_layouts(config)?;
 
 	let liquid = liquid_builder.build()?;
 
@@ -131,8 +119,8 @@ pub fn process_project(config: &JakeConfig) -> Result<(), Error> {
 	Ok(())
 }
 
-fn collect_src() -> Result<Vec<JakeFileT1>, Error> {
-	let JakeConfig { project_dir, source_dir, output_dir, plugins_dir, layout_dir, .. } = config();
+fn collect_src(config: &JakeConfig) -> Result<Vec<JakeFileT1>, Error> {
+	let JakeConfig { project_dir, source_dir, output_dir, plugins_dir, layout_dir, .. } = config;
 
 	std::fs::create_dir_all(output_dir)?;
 	std::fs::create_dir_all(plugins_dir)?;
@@ -189,7 +177,8 @@ fn collect_src() -> Result<Vec<JakeFileT1>, Error> {
 			}
 		}
 
-		let content = if let Some((fm, content)) = frontmatter::file_frontmatter_content(entry.path())? {
+		let context = || entry.path().strip_prefix(project_dir).unwrap_or(entry.path()).to_string_lossy();
+		let content = if let Some((fm, content)) = frontmatter::file_frontmatter_content(entry.path()).into_error_result_with(context)? {
 			if let Some(fm) = fm {
 				front_matter.extend(fm);
 			}
@@ -277,8 +266,8 @@ struct JakeLayout {
 	pub content: BoxedStr,
 }
 
-fn collect_layouts() -> Result<HashMap<KString, JakeLayout>, Error> {
-	let JakeConfig { layout_dir, .. } = config();
+fn collect_layouts(config: &JakeConfig) -> Result<HashMap<KString, JakeLayout>, Error> {
+	let JakeConfig { layout_dir, .. } = config;
 
 	let mut layouts = HashMap::new();
 

@@ -6,7 +6,7 @@ pub mod liquid_user_data;
 pub mod liquid_view;
 pub mod general_api;
 
-use crate::{data_strctures::{JakeFileT1, JakeFileT2}, error::{Error, JakeError, ResultExtensions}};
+use crate::{JakeConfig, data_strctures::{JakeFileT1, JakeFileT2}, error::{Error, JakeError, ResultExtensions}};
 use general_api::{file::FileUserData, path::PathUserData};
 
 const INIT_LUA_PATHS: &[&str] = &[
@@ -37,9 +37,7 @@ pub struct LuaResult {
 	pub files: Vec<JakeFileT2>,
 }
 
-pub fn setup_lua_state(lua: &mlua::Lua, files: Vec<JakeFileT1>) -> Result<LuaResult, Error> {
-	let config = crate::config();
-
+pub fn setup_lua_state(lua: &mlua::Lua, config: &JakeConfig, files: Vec<JakeFileT1>) -> Result<LuaResult, Error> {
 	let Some(init_file) = INIT_LUA_PATHS.iter()
 		.map(|path| config.plugins_dir.join(path))
 		.find(|path| path.exists()) else {
