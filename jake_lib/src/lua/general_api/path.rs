@@ -88,19 +88,19 @@ impl UserData for PathUserData {
 		methods.add_meta_method(mlua::MetaMethod::ToString, |lua, this, ()|
 			this.path.as_str().into_lua(lua)
 		);
-		methods.add_meta_method(mlua::MetaMethod::Concat, |_, this, other: PathUserData| {
-			let mut path = this.path.clone();
-			path.push(&other.path);
+		methods.add_meta_function(mlua::MetaMethod::Concat, |_, (lhs, rhs): (PathUserData, PathUserData)| {
+			let mut path = lhs.path.clone();
+			path.push(&rhs.path);
 			Ok(PathUserData::new(path))
 		});
-		methods.add_meta_method(mlua::MetaMethod::Add, |_, this, other: PathUserData| {
-			let mut path = this.path.clone();
-			path.push(&other.path);
+		methods.add_meta_function(mlua::MetaMethod::Add, |_, (lhs, rhs): (PathUserData, PathUserData)| {
+			let mut path = lhs.path.clone();
+			path.push(&rhs.path);
 			Ok(PathUserData::new(path))
 		});
-		methods.add_meta_method(mlua::MetaMethod::Eq, |_, this, other: PathUserData|
+		methods.add_meta_function(mlua::MetaMethod::Eq, |_, (lhs, rhs): (PathUserData, PathUserData)|
 			// Paths are inherently normalized.
-			Ok(this.path == other.path)
+			Ok(lhs.path == rhs.path)
 		);
 		methods.add_meta_method(mlua::MetaMethod::Len, |_, this, ()|
 			Ok(this.path.components().count())

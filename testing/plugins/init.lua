@@ -1,3 +1,8 @@
+function dbg(...)
+	print(...)
+	return ...
+end
+
 POST_PROC = require "post"
 
 function TAGS.my_tag()
@@ -35,7 +40,7 @@ local fruits = {
 -- Iterate over the list and make a tag for each one.
 for _, fruit in ipairs(fruits) do
 	TAGS["fruit_" .. fruit] = function()
-		-- return fruit .. "s aren't good for you at all, actually >:("
+		return fruit .. "s are really good for you :)"
 	end
 end
 
@@ -48,29 +53,36 @@ end
 
 -- local rands = {}
 
--- ---@type FilePostProcessFunc
--- local function post_minify(content, is_final)
--- 	if is_final then
--- 		return minify(content)
--- 	else
--- 		return content
--- 	end
--- end
+---@type FilePostProcessFunc
+local function post_processor(content, info)
+	if info.source.ext == "md" then
+		content = render(content)
+	end
+
+	if not SITE.debug and info.is_final then
+		content = minify(content)
+	end
+
+	return content
+end
 
 for i, file in ipairs(SITE.files) do
+	table.insert(file.post_proc, post_processor)
+
 	if file.uwu then
 		print("uwu on file " .. file.path.name)
 	end
 
 	if file.source.ext == "md" then
 		file.path.ext = "html"
-		table.insert(file.post_proc, function(content) print(file.source) return render(content) end)
 	end
 
 	if file.source.ext == "ts" then
 		file.path = Path.join("../generated", file.path)
-		file.path.ext = "js"
 	end
+	-- if file.source:strip("assets/ts") then
+	-- 	file:ignore()
+	-- end
 
 	for k, v in pairs(file.data) do
 		if k == "colors" then
@@ -95,10 +107,6 @@ for i, file in ipairs(SITE.files) do
 
 			file.data.colors = colors
 		end
-	end
-
-	if file.path.ext == "html" then
-		table.insert(file.post_proc, post_minify)
 	end
 end
 

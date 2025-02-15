@@ -93,7 +93,7 @@ pub fn process_project(config: &JakeConfig) -> Result<(), Error> {
 				// let scope = [ liquid_site_scope.to_owned(), liquid::to_object(&file.front_matter)? ].into_iter().flatten().collect();
 				let data = liquid::to_object(&file.front_matter)?;
 				let scope = liquid_core::runtime::StackFrame::new(&liquid_runtime, &data);
-				let content = parse_content(&layouts, &template, file.source, &scope, &file.post_processor)?;
+				let content = parse_content(&layouts, &template, file.source, &scope, &lua, &file.post_processor)?;
 
 				let output = file.output.to_logical_path(&config.output_dir);
 				std::fs::create_dir_all(output.parent().ok_or_else(|| UnexpectedFilePath(output.clone()))?)?;
@@ -214,8 +214,11 @@ fn parse_content(
 	template: &liquid::Template,
 	source: FileSource<impl AsRef<RelativePath>>,
 	liquid_runtime: &dyn liquid_core::runtime::Runtime,
+	lua: &mlua::Lua,
 	post_processor: &[mlua::Function],
 ) -> Result<String, Error> {
+	use lua::general_api::path::PathUserData;
+
 	let context = || source.as_option().map_or(String::from("Lua-generated File"), |p| p.as_ref().to_string());
 
 	pub struct TemplateMirror {
@@ -230,6 +233,21 @@ fn parse_content(
 
 	let layout = liquid_runtime.try_get(&[ "layout".into() ]);
 
+	macro_rules! table {
+		($lua:expr $(, $key:ident = $value:expr)* $(,)?) => {
+			{
+				let table = $lua.create_table()?;
+				$( table.set(stringify!($key), lua.pack($value)?)?; )*
+				table
+			}
+		};
+	}
+
+	let info = table! { lua,
+		is_final = layout.is_nil(),
+		source = source.as_option().map(PathUserData::from),
+	};
+	
 	for post in post_processor {
 		let context = || {
 			let mlua::FunctionInfo { name, short_src, line_defined, .. } = post.info();
@@ -243,7 +261,7 @@ fn parse_content(
 			format!("Post-processor function: {name}{line}")
 		};
 
-		let result: mlua::String = post.call((content.as_str(), layout.is_nil())).into_error_result_with(context)?;
+		let result: mlua::String = post.call((content.as_str(), info.clone())).into_error_result_with(context)?;
 		content.clear();
 		content.push_str(&result.to_str()?);
 	}
@@ -258,7 +276,7 @@ fn parse_content(
 
 		runtime.set_global("content".into(), liquid::model::Value::scalar(content));
 
-		content = parse_content(layouts, &layout.template, Some(&layout.path).into(), &runtime, post_processor)
+		content = parse_content(layouts, &layout.template, Some(&layout.path).into(), &runtime, lua, post_processor)
 			.into_error_result_with(|| format!("{} + {}", context(), layout.path))?;
 	}
 

@@ -156,7 +156,8 @@ function Path.new(path) end
 ---@alias Filter fun(target: any, named_args: Args, pos_args...: any): any
 ---@alias Args table<string, any>
 ---@alias Iterator<T> fun(): T
----@alias FilePostProcessFunc fun(content: string, is_final: boolean): string
+---@alias FilePostProcessFunc fun(content: string, info: PostProcInfo): string
+---@alias PostProcInfo { source: Path, is_final: boolean }
 
 --- Minifies HTML content.
 ---@param content string
