@@ -45,6 +45,7 @@ impl FromLua for PathUserData {
 	}
 }
 
+#[allow(clippy::unit_arg)]
 impl UserData for PathUserData {
 	fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
 		fields.add_field_method_get("ext", |lua, this| {
@@ -63,8 +64,7 @@ impl UserData for PathUserData {
 			this.path.file_name().map(|p| p.into_lua(lua)).unwrap_or(Ok(mlua::Nil))
 		});
 		fields.add_field_method_set("last", |_, this, name: mlua::String| {
-			this.path.set_file_name(&*name.to_str()?);
-			Ok(())
+			Ok(this.path.set_file_name(&*name.to_str()?))
 		});
 
 		fields.add_field_method_get("name", |lua, this| {
@@ -111,9 +111,14 @@ impl UserData for PathUserData {
 		});
 
 		methods.add_method_mut("push", |_, this, path: mlua::Variadic<Option<PathUserData>>| {
-			path.into_iter().flatten().for_each(|p| this.path.push(&p.path));
+			Ok(path.into_iter().flatten().for_each(|p| this.path.push(&p.path)))
+		});
 
-			Ok(())
+		methods.add_method("parts", |lua, this, ()| {
+			let parts = this.path.components().map(|c| lua.create_string(c.as_str())).collect::<Vec<_>>();
+			let mut parts = parts.into_iter();
+			
+			lua.create_function_mut(move |_, ()| parts.next().transpose())
 		});
 
 		methods.add_function(super::NEW_FUNCTION, |_, path: Option<PathUserData>| Ok(path));

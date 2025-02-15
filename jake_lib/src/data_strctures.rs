@@ -20,6 +20,16 @@ pub struct JakeFileT2 {
 	pub post_processor: Option<mlua::Function>,
 }
 
+#[derive()]
+pub struct JakeFileT3 {
+	pub source: FileSource,
+	pub output: RelativePathBuf,
+	pub front_matter: FrontMatter,
+	pub template: FileContent<liquid::Template>,
+	pub to_write: bool,
+	pub post_processor: Option<mlua::Function>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct JakeConfig {
 	pub project_dir: PathBuf,
@@ -32,18 +42,18 @@ pub struct JakeConfig {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(bound = "T: Clone + serde::Serialize + for<'a> serde::Deserialize<'a>")]
 #[serde(into = "Option<T>", from = "Option<T>")]
-pub enum FileContent<T: AsRef<str>> {
+pub enum FileContent<T> {
 	Utf8(T),
 	Binary,
 }
 
-impl<T: AsRef<str> + Default> Default for FileContent<T> {
+impl<T: Default> Default for FileContent<T> {
 	fn default() -> Self {
 		Self::Utf8(T::default())
 	}
 }
 
-impl<T: AsRef<str>, O: Into<T>> From<Option<O>> for FileContent<T> {
+impl<T, O: Into<T>> From<Option<O>> for FileContent<T> {
 	fn from(opt: Option<O>) -> Self {
 		match opt {
 			Some(s) => Self::Utf8(s.into()),
@@ -52,7 +62,7 @@ impl<T: AsRef<str>, O: Into<T>> From<Option<O>> for FileContent<T> {
 	}
 }
 
-impl<T: AsRef<str>> From<FileContent<T>> for Option<T> {
+impl<T> From<FileContent<T>> for Option<T> {
 	fn from(fc: FileContent<T>) -> Option<T> {
 		match fc {
 			FileContent::Utf8(s) => Some(s),
@@ -61,7 +71,7 @@ impl<T: AsRef<str>> From<FileContent<T>> for Option<T> {
 	}
 }
 
-impl<T: AsRef<str>> FileContent<T> {
+impl<T> FileContent<T> {
 	pub fn as_option(&self) -> Option<&T> {
 		match self {
 			Self::Utf8(s) => Some(s),

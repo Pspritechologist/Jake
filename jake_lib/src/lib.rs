@@ -30,13 +30,13 @@ mod jsonify_tag;
 pub(crate) mod data_strctures;
 
 use error::{Error, JakeError::*, ResultExtensions};
-use frontmatter::{combine_frontmatters, FrontMatter};
-use data_strctures::{FileContent, JakeFileT1};
-use kstring::{backend::{BoxedStr, HeapStr}, KString};
+use frontmatter::FrontMatter;
+use data_strctures::{FileContent, JakeFileT1, JakeFileT3};
+use kstring::KString;
 use liquid::ValueView;
+use liquid_core::{runtime, Renderable, Runtime};
 use relative_path::{RelativePath, RelativePathBuf};
 use std::collections::HashMap;
-use std::borrow::Cow::{Owned as Cowned, Borrowed as Cowed};
 
 pub fn process_project(config: &JakeConfig) -> Result<(), Error> {
 	let lua = unsafe { mlua::Lua::unsafe_new() };
@@ -44,32 +44,53 @@ pub fn process_project(config: &JakeConfig) -> Result<(), Error> {
 
 	let mut liquid_builder = liquid::ParserBuilder::with_stdlib();
 
-	liquid_builder = liquid_builder.block(lua::block::LuaBlock { lua: lua.clone() })
+	liquid_builder = liquid_builder.block(lua::liquid_api::block::LuaBlock { lua: lua.clone() })
 		.filter(jsonify_tag::Jsonify);
 
 	for (tag, func) in tags {
-		liquid_builder = liquid_builder.tag(lua::tag::LuaTag { tag, func, lua: lua.clone() });
+		liquid_builder = liquid_builder.tag(lua::liquid_api::tag::LuaTag { tag, func, lua: lua.clone() });
 	}
 
 	for (filter, func) in filters {
-		liquid_builder = liquid_builder.filter(lua::filter::Lua { filter, func, lua: lua.clone() });
+		liquid_builder = liquid_builder.filter(lua::liquid_api::filter::Lua { filter, func, lua: lua.clone() });
 	}
 
 	files.retain(|f| f.to_write);
 
-	let layouts = collect_layouts(config)?;
+	let liquid_parser = liquid_builder.build()?;
 
-	let liquid = liquid_builder.build()?;
+	let files: Vec<_> = files.into_iter().map(|f| Ok::<_, Error>(JakeFileT3 {
+		source: f.source,
+		output: f.output,
+		front_matter: f.front_matter,
+		template: if let FileContent::Utf8(content) = f.content {
+			FileContent::Utf8(liquid_parser.parse(&content)?)
+		} else { FileContent::Binary },
+		to_write: f.to_write,
+		post_processor: f.post_processor,
+	})).try_collect()?;
 
-	let global: liquid::Object = serde_yaml::from_str(&std::fs::read_to_string(config.project_dir.join("jake.yml"))?)?;
+	let layouts = collect_layouts(config, &liquid_parser)?;
+
+	let liquid_site_scope: liquid::Object = serde_yaml::from_str(&std::fs::read_to_string(config.project_dir.join("jake.yml"))?)?;
+
+	let liquid_runtime = liquid_core::runtime::RuntimeBuilder::new()
+		// .set_partials(values)
+		.set_globals(&liquid_site_scope)
+		.build();
+
+	// let liquid_lua_scope = lua::liquid_api::liquid_view::LuaValueView::new(lua.globals(), &lua)?;
+	// let liquid_lua_scope = liquid_core::runtime::StackFrame::new(liquid_runtime, liquid_lua_scope);
 
 	for file in files {
 		if !file.to_write { continue; }
 		
-		match file.content {
-			FileContent::Utf8(content) => {
-				let objs = [ Cowed(&global), Cowned(liquid::to_object(&file.front_matter)?) ];
-				let mut content = parse_content(&layouts, &liquid, content, file.source.as_option(), combine_frontmatters(objs))?;
+		match file.template {
+			FileContent::Utf8(template) => {
+				// let scope = [ liquid_site_scope.to_owned(), liquid::to_object(&file.front_matter)? ].into_iter().flatten().collect();
+				let data = liquid::to_object(&file.front_matter)?;
+				let scope = liquid_core::runtime::StackFrame::new(&liquid_runtime, &data);
+				let mut content = parse_content(&layouts, &template, file.source.as_option(), &scope)?;
 
 				let output = file.output.to_logical_path(&config.output_dir);
 				std::fs::create_dir_all(output.parent().ok_or_else(|| UnexpectedFilePath(output.clone()))?)?;
@@ -202,10 +223,9 @@ fn collect_src(config: &JakeConfig) -> Result<Vec<JakeFileT1>, Error> {
 
 fn parse_content(
 	layouts: &HashMap<KString, JakeLayout>,
-	liquid: &liquid::Parser,
-	content: impl AsRef<str>,
+	template: &liquid::Template,
 	path: Option<impl AsRef<RelativePath>>,
-	mut frontmatter: liquid::Object
+	liquid_runtime: &dyn liquid_core::runtime::Runtime,
 ) -> Result<String, Error> {
 	fn markdown_ops() -> markdown::Options {
 		markdown::Options {
@@ -227,9 +247,14 @@ fn parse_content(
 
 	let context = || path.as_ref().map_or(String::from("Lua-generated File"), |p| p.as_ref().to_string());
 
-	let content = liquid.parse(content.as_ref())
-		.into_error_result_with(context)?
-		.render(&frontmatter)
+	pub struct TemplateMirror {
+		template: runtime::Template,
+		#[allow(dead_code)]
+		partials: Option<std::sync::Arc<dyn liquid_core::runtime::PartialStore + Send + Sync>>,
+	}
+
+	let content = unsafe { std::mem::transmute::<&liquid::Template, &TemplateMirror>(template) } // :T
+		.template.render(&liquid_runtime)
 		.into_error_result_with(context)?;
 
 	let mut content = if let Some(path) = &path { match path.as_ref().extension() {
@@ -240,20 +265,17 @@ fn parse_content(
 		_ => content,
 	} } else { content };
 
-	if let Some(layout) = frontmatter.get("layout") {
+	if let Some(layout) = liquid_runtime.try_get(&[ "layout".into() ]) && !layout.is_nil() {
 		let layout = layouts.get(layout.to_kstr().as_str()).ok_or_else(|| LayoutNotFound(layout.to_kstr().into()))?;
 
-		frontmatter.remove("layout");
+		let mut frontmatter = liquid::to_object(&layout.frontmatter)?;
+		frontmatter.insert("layout".into(), liquid::model::Value::Nil);
 
-		let mut frontmatter = if let Some(layout_frontmatter) = layout.frontmatter.as_ref() {
-			combine_frontmatters([ Cowned(frontmatter), Cowned(liquid::to_object(&layout_frontmatter)?) ])
-		} else {
-			frontmatter
-		};
+		let runtime = liquid_core::runtime::StackFrame::new(&liquid_runtime, frontmatter);
 
-		frontmatter.insert("content".into(), liquid_core::Value::scalar(content));
+		runtime.set_global("content".into(), liquid::model::Value::scalar(content));
 
-		content = parse_content(layouts, liquid, &layout.content, Some(&layout.path), frontmatter)
+		content = parse_content(layouts, &layout.template, Some(&layout.path), &runtime)
 			.into_error_result_with(|| format!("{} + {}", context(), layout.path))?;
 	}
 
@@ -263,10 +285,10 @@ fn parse_content(
 struct JakeLayout {
 	pub path: RelativePathBuf,
 	pub frontmatter: Option<FrontMatter>,
-	pub content: BoxedStr,
+	pub template: liquid::Template,
 }
 
-fn collect_layouts(config: &JakeConfig) -> Result<HashMap<KString, JakeLayout>, Error> {
+fn collect_layouts(config: &JakeConfig, parser: &liquid::Parser) -> Result<HashMap<KString, JakeLayout>, Error> {
 	let JakeConfig { layout_dir, .. } = config;
 
 	let mut layouts = HashMap::new();
@@ -290,10 +312,13 @@ fn collect_layouts(config: &JakeConfig) -> Result<HashMap<KString, JakeLayout>, 
 			.into_error_result_with(|| rel_path.as_str())?
 			.ok_or(FileNotUtf8(rel_path.clone()))?;
 
+		let template = parser.parse(&content)
+			.into_error_result_with(|| rel_path.as_str())?;
+
 		let layout = JakeLayout {
 			path: rel_path,
 			frontmatter,
-			content: BoxedStr::from_string(content),
+			template,
 		};
 
 		layouts.insert(name, layout);

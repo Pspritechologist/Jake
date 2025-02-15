@@ -12,6 +12,7 @@ axum = "0.8.1"
 tower-http = { version = "0.6.2", features = [ "fs" ] }
 tower-livereload = "0.9.5"
 tokio = { version = "1.43.0", features = [ "full" ] }
+iter_tools = "*"
 
 [workspace]
 members = [ "jake_lib" ]

@@ -1,10 +1,6 @@
-pub mod tag;
-pub mod filter;
-pub mod block;
-pub mod converter;
-pub mod liquid_user_data;
-pub mod liquid_view;
+pub mod typed;
 pub mod general_api;
+pub mod liquid_api;
 
 use crate::{JakeConfig, data_strctures::{JakeFileT1, JakeFileT2}, error::{Error, JakeError, ResultExtensions}};
 use general_api::{file::FileUserData, path::PathUserData};
@@ -55,8 +51,10 @@ pub fn setup_lua_state(lua: &mlua::Lua, config: &JakeConfig, files: Vec<JakeFile
 
 	// Make sure require searches for modules relative to the plugins directory.
 	let package: mlua::Table = global.get("package")?;
-	let path = format!("{dir}/?.lua;{dir}/?/init.lua", dir = config.plugins_dir.to_string_lossy());
+	let path = format!("{dir}/share/lua/5.1/?.lua;{dir}/share/lua/5.1/?/init.lua;{dir}/?.lua;{dir}/?/init.lua", dir = config.plugins_dir.to_string_lossy());
 	package.set("path", path)?;
+	let cpath = format!("{dir}/lib/lua/5.1/?.so;{dir}/?.so", dir = config.plugins_dir.to_string_lossy());
+	package.set("cpath", cpath)?;
 	
 	global.set(PathUserData::CLASS_NAME, lua.create_proxy::<PathUserData>()?)?;
 	global.set(FileUserData::CLASS_NAME, lua.create_proxy::<FileUserData>()?)?;

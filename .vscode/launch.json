@@ -19,10 +19,7 @@
 					"kind": "bin"
 				}
 			},
-			"args": [
-				// "--",
-				"build",
-			],
+			"args": [ "serve" ],
 			"cwd": "${workspaceFolder}",
 			"env": {
 				"JAKE_DIR": "${workspaceFolder}/testing/"
@@ -37,15 +34,13 @@
 					"build",
 					"--bin=jake",
 					"--package=jake",
-					"--",
-					"serve",
 				],
 				"filter": {
 					"name": "jake",
 					"kind": "bin"
 				}
 			},
-			"args": [],
+			"args": [ "build" ],
 			"cwd": "${workspaceFolder}",
 			"env": {
 				"JAKE_DIR": "${workspaceFolder}/testing/"

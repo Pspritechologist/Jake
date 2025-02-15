@@ -76,10 +76,6 @@ pub fn file_frontmatter_content(path: impl AsRef<Path>) -> Result<Option<(Option
 	Ok(Some((frontmatter, buf)))
 }
 
-pub fn combine_frontmatters<const S: usize>(objs: [std::borrow::Cow<liquid::Object>; S]) -> liquid::Object {
-	objs.into_iter().flat_map(|o| o.into_owned()).collect()
-}
-
 /// Reads the content of a reader, skipping the frontmatter if present.  
 /// Does not return Err if the reader is not valid UTF-8.
 /// 

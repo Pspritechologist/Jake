@@ -78,17 +78,13 @@ impl FromLua for FileUserData {
 	}
 }
 
+#[allow(clippy::unit_arg)]
 impl UserData for FileUserData {
 	fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
-		fields.add_field_method_get(SOURCE_FIELD, |_, this| {
-			Ok(this.source.clone())
-		});
+		fields.add_field_method_get(SOURCE_FIELD, |_, this| Ok(this.source.clone()));
 
 		fields.add_field_method_get(DATA_FIELD, |_, this| Ok(this.data.clone()));
-		fields.add_field_method_set(DATA_FIELD, |_, this, data: mlua::Table| {
-			this.data = data;
-			Ok(())
-		});
+		fields.add_field_method_set(DATA_FIELD, |_, this, data: mlua::Table| Ok(this.data = data));
 
 		fields.add_field_method_get(OUTPUT_FIELD, |lua, this| this.output.userdata().into_lua(lua));
 		fields.add_field_method_set(OUTPUT_FIELD, |lua, this, path: mlua::Value| {
@@ -106,8 +102,7 @@ impl UserData for FileUserData {
 		fields.add_field_method_get(CONTENT_FIELD, |_, this| Ok(this.content.clone()));
 		fields.add_field_method_set(CONTENT_FIELD, |_, this, content: mlua::String| {
 			if this.content.is_some() {
-				this.content = Some(content);
-				Ok(())
+				Ok(this.content = Some(content))
 			} else {
 				let msg = format!(
 					"Cannot set content of a binary file: {}",
@@ -121,16 +116,14 @@ impl UserData for FileUserData {
 
 		fields.add_field_method_get(TO_WRITE_FIELD, |_, this| Ok(this.to_write));
 		fields.add_field_method_set(TO_WRITE_FIELD, |_, this, to_write: bool| {
-			this.to_write = to_write;
-			Ok(())
+			Ok(this.to_write = to_write)
 		});
 
 		fields.add_field_method_get(POSTPROC_FIELD, |_, this| {
 			Ok(this.post_processor.clone())
 		});
 		fields.add_field_method_set(POSTPROC_FIELD, |_, this, post_processor: Option<mlua::Function>| {
-			this.post_processor = post_processor;
-			Ok(())
+			Ok(this.post_processor = post_processor)
 		});
 
 		fields.add_field_method_get(IS_TEXT_FIELD, |_, this| Ok(this.content.is_some()));
@@ -138,9 +131,15 @@ impl UserData for FileUserData {
 	}
 
 	fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+		methods.add_meta_method(mlua::MetaMethod::Index, |_, this, name: mlua::String| {
+			this.data.raw_get::<mlua::Value>(name)
+		});
+		methods.add_meta_method(mlua::MetaMethod::NewIndex, |_, this, (name, value): (mlua::String, mlua::Value)| {
+			this.data.raw_set(name, value)
+		});
+
 		methods.add_method_mut(IGNORE_METHOD, |_, this, ignore: Option<bool>| {
-			this.to_write = ignore.unwrap_or(false);
-			Ok(())
+			Ok(this.to_write = ignore.unwrap_or(false))
 		});
 
 		methods.add_function(super::NEW_FUNCTION, |lua, value: Option<mlua::Table>| {
