@@ -26,12 +26,12 @@ pub use data_strctures::JakeConfig;
 
 mod lua;
 mod frontmatter;
-mod jsonify_tag;
+mod liquid_extensions;
 pub(crate) mod data_strctures;
 
 use error::{Error, JakeError::*, ResultExtensions};
 use frontmatter::FrontMatter;
-use data_strctures::{FileContent, JakeFileT1, JakeFileT3};
+use data_strctures::{FileContent, FileSource, JakeFileT1, JakeFileT3};
 use kstring::KString;
 use liquid::ValueView;
 use liquid_core::{runtime, Renderable, Runtime};
@@ -40,12 +40,13 @@ use std::collections::HashMap;
 
 pub fn process_project(config: &JakeConfig) -> Result<(), Error> {
 	let lua = unsafe { mlua::Lua::unsafe_new() };
-	let lua::LuaResult { tags, converters, filters, mut files } = lua::setup_lua_state(&lua, config, collect_src(config)?)?;
+	let lua::LuaResult { tags, converters, filters, mut files, post_processors } = lua::setup_lua_state(&lua, config, collect_src(config)?)?;
 
 	let mut liquid_builder = liquid::ParserBuilder::with_stdlib();
 
 	liquid_builder = liquid_builder.block(lua::liquid_api::block::LuaBlock { lua: lua.clone() })
-		.filter(jsonify_tag::Jsonify);
+		.filter(liquid_extensions::Jsonify)
+		.filter(liquid_extensions::Render);
 
 	for (tag, func) in tags {
 		liquid_builder = liquid_builder.tag(lua::liquid_api::tag::LuaTag { tag, func, lua: lua.clone() });
@@ -82,6 +83,8 @@ pub fn process_project(config: &JakeConfig) -> Result<(), Error> {
 	// let liquid_lua_scope = lua::liquid_api::liquid_view::LuaValueView::new(lua.globals(), &lua)?;
 	// let liquid_lua_scope = liquid_core::runtime::StackFrame::new(liquid_runtime, liquid_lua_scope);
 
+	let mut skipped = 0u32;
+
 	for file in files {
 		if !file.to_write { continue; }
 		
@@ -90,34 +93,10 @@ pub fn process_project(config: &JakeConfig) -> Result<(), Error> {
 				// let scope = [ liquid_site_scope.to_owned(), liquid::to_object(&file.front_matter)? ].into_iter().flatten().collect();
 				let data = liquid::to_object(&file.front_matter)?;
 				let scope = liquid_core::runtime::StackFrame::new(&liquid_runtime, &data);
-				let mut content = parse_content(&layouts, &template, file.source.as_option(), &scope)?;
+				let content = parse_content(&layouts, &template, file.source, &scope, &file.post_processor)?;
 
 				let output = file.output.to_logical_path(&config.output_dir);
 				std::fs::create_dir_all(output.parent().ok_or_else(|| UnexpectedFilePath(output.clone()))?)?;
-
-				// if let Some(ext) = output.extension() && ext == "html" {
-				// 	if true {
-				// 		let mut buf = Vec::new();
-				// 		let mut rewriter = lol_html::HtmlRewriter::new(
-				// 			lol_html::Settings {
-				// 				element_content_handlers: vec![
-
-				// 				],
-				// 				..Default::default()
-				// 			},
-				// 			|c: &[u8]| buf.extend(c.iter().copied())
-				// 		);
-				// 		rewriter.write(content.as_bytes()).expect("owo");
-				// 		rewriter.end().expect("uwu");
-
-				// 		content = String::from_utf8(buf).expect("Rewritten HTML is valid UTF8");
-				// 	}
-
-				// 	if true {
-				// 		let min = minify_html::minify(content.as_bytes(), &minify_html::Cfg { minify_css: true, minify_js: true, ..Default::default() });
-				// 		content = String::from_utf8(min).expect("Minified HTML is valid UTF8");
-				// 	}
-				// }
 
 				std::fs::write(output, content)?;
 			},
@@ -129,12 +108,21 @@ pub fn process_project(config: &JakeConfig) -> Result<(), Error> {
 				let source = file.source.into_option().expect(MSG).to_logical_path(&config.source_dir);
 
 				if let (Ok(src), Ok(out)) = (source.metadata().and_then(|src| src.modified()), output.metadata().and_then(|src| src.modified())) && src < out {
+					skipped += 1;
 				} else {
 					std::fs::copy(source, output)?;
 					// std::os::unix::fs::symlink(source, output)?; //? This is really really funny.
 				}
 			},
 		}
+	}
+
+	if skipped > 0 {
+		eprintln!("Skipped {} up to date files", skipped);
+	}
+
+	if let Some(post) = post_processors {
+		post.call::<()>(())?;
 	}
 
 	Ok(())
@@ -224,28 +212,11 @@ fn collect_src(config: &JakeConfig) -> Result<Vec<JakeFileT1>, Error> {
 fn parse_content(
 	layouts: &HashMap<KString, JakeLayout>,
 	template: &liquid::Template,
-	path: Option<impl AsRef<RelativePath>>,
+	source: FileSource<impl AsRef<RelativePath>>,
 	liquid_runtime: &dyn liquid_core::runtime::Runtime,
+	post_processor: &[mlua::Function],
 ) -> Result<String, Error> {
-	fn markdown_ops() -> markdown::Options {
-		markdown::Options {
-			compile: markdown::CompileOptions {
-				allow_dangerous_html: true,
-				allow_dangerous_protocol: true,
-				gfm_tagfilter: false,
-				..markdown::CompileOptions::gfm()
-			},
-			parse: markdown::ParseOptions {
-				constructs: markdown::Constructs {
-					code_indented: false,
-					..markdown::Constructs::gfm()
-				},
-				..markdown::ParseOptions::gfm()
-			},
-		}
-	}
-
-	let context = || path.as_ref().map_or(String::from("Lua-generated File"), |p| p.as_ref().to_string());
+	let context = || source.as_option().map_or(String::from("Lua-generated File"), |p| p.as_ref().to_string());
 
 	pub struct TemplateMirror {
 		template: runtime::Template,
@@ -253,17 +224,29 @@ fn parse_content(
 		partials: Option<std::sync::Arc<dyn liquid_core::runtime::PartialStore + Send + Sync>>,
 	}
 
-	let content = unsafe { std::mem::transmute::<&liquid::Template, &TemplateMirror>(template) } // :T
+	let mut content = unsafe { std::mem::transmute::<&liquid::Template, &TemplateMirror>(template) } // :T
 		.template.render(&liquid_runtime)
 		.into_error_result_with(context)?;
 
-	let mut content = if let Some(path) = &path { match path.as_ref().extension() {
-		Some("md") => {
-			markdown::to_html_with_options(&content, &markdown_ops()).expect("Markdown doesn't panic")
-		},
-		// Some("scss") => grass::from_string(&content, &grass::Options::default())?,
-		_ => content,
-	} } else { content };
+	let layout = liquid_runtime.try_get(&[ "layout".into() ]);
+
+	for post in post_processor {
+		let context = || {
+			let mlua::FunctionInfo { name, short_src, line_defined, .. } = post.info();
+
+			let default = || short_src.to_owned().unwrap_or_else(|| String::from("Unknown"));
+			let map = |n: String| short_src.as_ref().map_or_else(|| n.to_string(), |s| format!("{n}({s})"));
+			let name = name.map_or_else(default, map);
+			
+			let line = line_defined.map_or(String::new(), |l| format!(":{l}"));
+
+			format!("Post-processor function: {name}{line}")
+		};
+
+		let result: mlua::String = post.call((content.as_str(), layout.is_nil())).into_error_result_with(context)?;
+		content.clear();
+		content.push_str(&result.to_str()?);
+	}
 
 	if let Some(layout) = liquid_runtime.try_get(&[ "layout".into() ]) && !layout.is_nil() {
 		let layout = layouts.get(layout.to_kstr().as_str()).ok_or_else(|| LayoutNotFound(layout.to_kstr().into()))?;
@@ -275,7 +258,7 @@ fn parse_content(
 
 		runtime.set_global("content".into(), liquid::model::Value::scalar(content));
 
-		content = parse_content(layouts, &layout.template, Some(&layout.path), &runtime)
+		content = parse_content(layouts, &layout.template, Some(&layout.path).into(), &runtime, post_processor)
 			.into_error_result_with(|| format!("{} + {}", context(), layout.path))?;
 	}
 

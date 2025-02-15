@@ -20,7 +20,7 @@ pub struct FileUserData {
 	pub output: TypedUserData<PathUserData>,
 	pub content: Option<mlua::String>,
 	pub data: mlua::Table,
-	pub post_processor: Option<mlua::Function>,
+	pub post_processor: mlua::Table,
 }
 
 impl FileUserData {
@@ -35,7 +35,7 @@ impl FileUserData {
 			data: lua.create_table_from(
 				file.front_matter.into_iter().map(|(k, v)| (mlua::String::wrap(k), lua.to_value(&v).expect("All frontmatter values are valid Lua values"))),
 			)?,
-			post_processor: None,
+			post_processor: lua.create_table()?,
 		})
 	}
 
@@ -46,7 +46,7 @@ impl FileUserData {
 			output: self.output.borrow()?.path().to_owned(),
 			content: self.content.map(|c| c.to_string_lossy()).into(), //TODO: and here...
 			front_matter: lua.from_value(mlua::Value::Table(self.data))?,
-			post_processor: self.post_processor,
+			post_processor: self.post_processor.sequence_values().try_collect()?,
 		})
 	}
 
@@ -57,7 +57,7 @@ impl FileUserData {
 			source: None,
 			output: TypedUserData::from_ser_data(PathUserData::default(), lua),
 			data: lua.create_table()?,
-			post_processor: None,
+			post_processor: lua.create_table()?,
 		})
 	}
 }
@@ -122,7 +122,7 @@ impl UserData for FileUserData {
 		fields.add_field_method_get(POSTPROC_FIELD, |_, this| {
 			Ok(this.post_processor.clone())
 		});
-		fields.add_field_method_set(POSTPROC_FIELD, |_, this, post_processor: Option<mlua::Function>| {
+		fields.add_field_method_set(POSTPROC_FIELD, |_, this, post_processor: mlua::Table| {
 			Ok(this.post_processor = post_processor)
 		});
 
@@ -147,13 +147,13 @@ impl UserData for FileUserData {
 				let content = value.get::<Option<_>>("content").transpose();
 				let data = value.get::<Option<_>>("data").transpose();
 				let output = value.get::<Option<PathUserData>>("output")?;
-				let post_processor = value.get("post_processor")?;
+				let post_processor = value.get::<Option<_>>("post_processor").transpose();
 				
 				Ok(FileUserData {
 					content: Some(content.unwrap_or_else(|| lua.create_string(""))?),
 					data: data.unwrap_or_else(|| lua.create_table())?,
 					output: TypedUserData::from_ser_data(output.unwrap_or_default(), lua),
-					post_processor,
+					post_processor: post_processor.unwrap_or_else(|| lua.create_table())?,
 					..FileUserData::new(lua)?
 				})
 			} else {

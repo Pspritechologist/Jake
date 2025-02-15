@@ -17,7 +17,7 @@ pub struct JakeFileT2 {
 	pub content: FileContent<String>,
 	pub to_write: bool,
 	#[serde(skip)]
-	pub post_processor: Option<mlua::Function>,
+	pub post_processor: Vec<mlua::Function>,
 }
 
 #[derive()]
@@ -27,7 +27,7 @@ pub struct JakeFileT3 {
 	pub front_matter: FrontMatter,
 	pub template: FileContent<liquid::Template>,
 	pub to_write: bool,
-	pub post_processor: Option<mlua::Function>,
+	pub post_processor: Vec<mlua::Function>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -92,13 +92,13 @@ impl<T> FileContent<T> {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub enum FileSource {
-	Src(RelativePathBuf),
+pub enum FileSource<T = RelativePathBuf> {
+	Src(T),
 	Lua,
 }
 
-impl From<Option<RelativePathBuf>> for FileSource {
-	fn from(opt: Option<RelativePathBuf>) -> Self {
+impl<T> From<Option<T>> for FileSource<T> {
+	fn from(opt: Option<T>) -> Self {
 		match opt {
 			Some(p) => Self::Src(p),
 			None => Self::Lua,
@@ -106,8 +106,8 @@ impl From<Option<RelativePathBuf>> for FileSource {
 	}
 }
 
-impl From<FileSource> for Option<RelativePathBuf> {
-	fn from(fs: FileSource) -> Option<RelativePathBuf> {
+impl<T> From<FileSource<T>> for Option<T> {
+	fn from(fs: FileSource<T>) -> Option<T> {
 		match fs {
 			FileSource::Src(p) => Some(p),
 			FileSource::Lua => None,
@@ -115,15 +115,15 @@ impl From<FileSource> for Option<RelativePathBuf> {
 	}
 }
 
-impl FileSource {
-	pub fn as_option(&self) -> Option<&RelativePathBuf> {
+impl<T> FileSource<T> {
+	pub fn as_option(&self) -> Option<&T> {
 		match self {
 			Self::Src(p) => Some(p),
 			Self::Lua => None,
 		}
 	}
 
-	pub fn into_option(self) -> Option<RelativePathBuf> {
+	pub fn into_option(self) -> Option<T> {
 		match self {
 			Self::Src(p) => Some(p),
 			Self::Lua => None,

@@ -3,6 +3,9 @@ name = "jake"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+members = [ "jake_lib" ]
+
 [dependencies]
 jake_lib = { path = "jake_lib" }
 clap = { version = "4.5.24", features = [ "derive", "env" ] }
@@ -13,9 +16,6 @@ tower-http = { version = "0.6.2", features = [ "fs" ] }
 tower-livereload = "0.9.5"
 tokio = { version = "1.43.0", features = [ "full" ] }
 iter_tools = "*"
-
-[workspace]
-members = [ "jake_lib" ]
 
 [profile.release]
 lto = true

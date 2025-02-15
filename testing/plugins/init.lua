@@ -1,3 +1,5 @@
+POST_PROC = require "post"
+
 function TAGS.my_tag()
 	return "That is awesome"
 end
@@ -33,7 +35,7 @@ local fruits = {
 -- Iterate over the list and make a tag for each one.
 for _, fruit in ipairs(fruits) do
 	TAGS["fruit_" .. fruit] = function()
-		return fruit .. "s are good for you!"
+		-- return fruit .. "s aren't good for you at all, actually >:("
 	end
 end
 
@@ -44,17 +46,30 @@ end
 -- 	return TEMPLATE.data.title() .. " " .. word
 -- end
 
-local rands = {}
+-- local rands = {}
+
+-- ---@type FilePostProcessFunc
+-- local function post_minify(content, is_final)
+-- 	if is_final then
+-- 		return minify(content)
+-- 	else
+-- 		return content
+-- 	end
+-- end
 
 for i, file in ipairs(SITE.files) do
-	table.insert(rands, math.random(1, 50))
-	if rands[table.maxn(rands)] == 1 then
-		file:ignore()
-		goto continue
+	if file.uwu then
+		print("uwu on file " .. file.path.name)
 	end
 
 	if file.source.ext == "md" then
 		file.path.ext = "html"
+		table.insert(file.post_proc, function(content) print(file.source) return render(content) end)
+	end
+
+	if file.source.ext == "ts" then
+		file.path = Path.join("../generated", file.path)
+		file.path.ext = "js"
 	end
 
 	for k, v in pairs(file.data) do
@@ -82,10 +97,10 @@ for i, file in ipairs(SITE.files) do
 		end
 	end
 
-	::continue::
+	if file.path.ext == "html" then
+		table.insert(file.post_proc, post_minify)
+	end
 end
-
--- print(table.concat(rands, ", "))
 
 -- local page = File.new()
 -- page.content = [[
@@ -101,16 +116,24 @@ end
 
 -- table.insert(SITE.files, page)
 
-table.insert(SITE.files, File.new {
-	content = [[
-		This page was generated through Lua :)
+for i = 1, 3 do
+	table.insert(SITE.files, File.new {
+		content = [[
+			This page was generated through Lua :)
+	
+			{{ some_value }}
+			{{ wow }}
+		]],
+		data = {
+			some_value = "This is a value from Lua!",
+			wow = "Wowza!",
+			layout = "base",
+			title = "HAH"
+		},
+		output = "owo/uwu" .. i .. ".html"
+	})
+end
 
-		{{ some_value }}
-		{{ wow }}
-	]],
-	data = {
-		some_value = "This is a value from Lua!",
-		wow = "Wowza!"
-	},
-	output = "owo/uwu.html"
-})
+LUA = "This is a string from Lua!"
+
+print("Done with the Lua!")

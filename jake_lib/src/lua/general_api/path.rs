@@ -121,11 +121,19 @@ impl UserData for PathUserData {
 			lua.create_function_mut(move |_, ()| parts.next().transpose())
 		});
 
-		methods.add_function(super::NEW_FUNCTION, |_, path: Option<PathUserData>| Ok(path));
+		methods.add_method("strip", |_, this, prefix: Option<PathUserData>| {
+			let Some(prefix) = prefix else {
+				return Ok(Some(PathUserData::new(&this.path)));
+			};
+			Ok(this.path.strip_prefix(prefix.path).ok().map(PathUserData::new))
+		});
+
 		methods.add_function("join", |_, paths: mlua::Variadic<Option<PathUserData>>| {
 			let mut path = RelativePathBuf::new();
 			paths.into_iter().flatten().for_each(|p| path.push(&p.path));
 			Ok(PathUserData::new(path))
 		});
+
+		methods.add_function(super::NEW_FUNCTION, |_, path: Option<PathUserData>| Ok(path));
 	}
 }

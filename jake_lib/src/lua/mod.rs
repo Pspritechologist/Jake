@@ -15,6 +15,10 @@ const TAGS_TABLE: &str = "TAGS";
 const FILTERS_TABLE: &str = "FILTERS";
 const CONVERTERS_TABLE: &str = "CONVERTERS";
 const SITE_DATA: &str = "SITE";
+const POST_PROCESSOR: &str = "POST_PROC";
+
+const MINIFY_HTML_FUNC: &str = "minify";
+const RENDER_MARKDOWN_FUNC: &str = "render";
 
 // Site data keys.
 const DIR_PROJ: &str = "project_dir";
@@ -29,6 +33,7 @@ pub struct LuaResult {
 	pub tags: Vec<(String, mlua::Function)>,
 	pub converters: Vec<(String, mlua::Function)>,
 	pub filters: Vec<(String, mlua::Function)>,
+	pub post_processors: Option<mlua::Function>,
 
 	pub files: Vec<JakeFileT2>,
 }
@@ -56,6 +61,9 @@ pub fn setup_lua_state(lua: &mlua::Lua, config: &JakeConfig, files: Vec<JakeFile
 	let cpath = format!("{dir}/lib/lua/5.1/?.so;{dir}/?.so", dir = config.plugins_dir.to_string_lossy());
 	package.set("cpath", cpath)?;
 	
+	global.set(RENDER_MARKDOWN_FUNC, mlua::Function::wrap(|content: mlua::String| Ok(general_api::formatting::render_markdown(&content.to_str()?))))?;
+	global.set(MINIFY_HTML_FUNC, lua.create_function(|lua, html: mlua::String| general_api::formatting::minify_html(lua, &html.to_str()?))?)?;
+
 	global.set(PathUserData::CLASS_NAME, lua.create_proxy::<PathUserData>()?)?;
 	global.set(FileUserData::CLASS_NAME, lua.create_proxy::<FileUserData>()?)?;
 
@@ -117,5 +125,7 @@ pub fn setup_lua_state(lua: &mlua::Lua, config: &JakeConfig, files: Vec<JakeFile
 	// 	},
 	// }).transpose()?;
 
-	Ok(LuaResult { tags, converters, filters, files, /* post_processor */ })
+	let post_processors = global.get(POST_PROCESSOR)?;
+
+	Ok(LuaResult { tags, converters, filters, files, post_processors})
 }

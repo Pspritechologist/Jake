@@ -89,7 +89,7 @@ impl Error {
 	}
 
 	pub fn print_error(self) {
-		eprintln!("{}", self.downcast());
+		eprintln!("{}", self/* .downcast() */);
 	}
 }
 

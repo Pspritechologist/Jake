@@ -1,4 +1,9 @@
 {
     "vs-browser.url": "http://localhost:4000/",
     "Lua.runtime.version": "LuaJIT",
+    "Lua.hint.paramType": true,
+    "Lua.diagnostics.severity": {
+        "undefined-global": "Error",
+        "lowercase-global": "Error",
+    }
 }

@@ -1,12 +1,12 @@
+local small_words = {
+    a = true, an = true, ['and'] = true, as = true, at = true, but = true, by = true,
+    en = true, ['for'] = true, ['if'] = true, ['in'] = true, of = true, on = true, ['or'] = true,
+    the = true, to = true, v = true, ['v.'] = true, via = true, vs = true, ['vs.'] = true
+}
+
 ---@param input string
 ---@return string
 local function titlecase(input)
-    local small_words = {
-        a = true, an = true, ['and'] = true, as = true, at = true, but = true, by = true,
-        en = true, ['for'] = true, ['if'] = true, ['in'] = true, of = true, on = true, ['or'] = true,
-        the = true, to = true, v = true, ['v.'] = true, via = true, vs = true, ['vs.'] = true
-    }
-
     local function smart_capitalize(word)
         local leading, first_char, rest = word:match("^(['\"%(%[]*)([a-zA-Z])(.+)$")
         if first_char then
